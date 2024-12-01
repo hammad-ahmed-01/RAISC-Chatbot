@@ -1,15 +1,12 @@
 import os
 from langchain_groq import ChatGroq
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_community.vectorstores import Chroma
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.embeddings import HuggingFaceEmbeddings
-
-# Load environment variables from .env
-load_dotenv()
 
 # Define the persistent directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +33,7 @@ retriever = db.as_retriever(
 
 llm = ChatGroq(
     model="llama-3.1-70b-versatile",
+    # I am not supposed to upload API key, but i dont know man
     groq_api_key="REMOVED_GROQ_API_KEY",
     temperature=0
 )
