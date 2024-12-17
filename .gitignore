@@ -1,0 +1,85 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+.env/
+.env.local
+.env.*.bkp
+
+# Dependencies
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Logs and cache
+*.log
+*.sqlite3
+*.db
+*.sqlite
+*.pid
+db.sqlite3
+*.sqlite3-journal
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.iml
+*.sublime-workspace
+
+# Python Packaging
+*.wheel
+*.egg-info/
+MANIFEST
+*.spec
+
+# macOS
+.DS_Store
+
+# ChromaDB Persistent Files
+db/
+
+# Coverage reports
+.coverage
+htmlcov/
+*.cover
+*.py,cover
+.cache
+.nox/
+
+# Test and debug
+test/
+tests/
+debug.log
+
+# Ignore compiled files
+*.so
+*.dll
+*.dylib
+*.pyd
+
+# Git Ignore specific tools
+__pycache__
+.Python
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+*~  # Backup files
+
+# Ignore sensitive files
+*.key
+*.pem
+secrets.json
+
+# FastAPI and ChromaDB Temporary Files
+*.json.lock
+*.lock
+chroma_db/
+
+# Ignore local Python dependencies
+requirements.txt.bak
