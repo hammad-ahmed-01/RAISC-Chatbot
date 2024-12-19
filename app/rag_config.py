@@ -2,9 +2,9 @@ import os
 from langchain_groq import ChatGroq
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from app.config import MODEL_NAME, GROQ_API_KEY, PERSISTENT_DIRECTORY
 
 # Initialize Embeddings and VectorStore
@@ -33,13 +33,12 @@ contextualize_q_prompt = ChatPromptTemplate.from_messages(
 )
 
 qa_system_prompt = (
-    "You are an assistant for question-answering tasks. Use "
-    "the following pieces of retrieved context to answer the "
-    "question. If you don't know the answer, just say that you "
-    "don't know. Use three sentences maximum and keep the answer "
-    "concise. "
-    "At the end, add a line asking if the user needs more information "
-    "or would like to continue the conversation."
+    "You are a mental health assistant for patient support tasks. "
+    "You will offer advice to users based on the retrieved context. "
+    "Use the following retrieved information and user data to answer "
+    "the question. If you don't know the answer, say so. "
+    "Use three sentences maximum and keep the answer concise. "
+    "Personalize your responses using user-provided information. "
     "\n\n"
     "{context}"
 )
