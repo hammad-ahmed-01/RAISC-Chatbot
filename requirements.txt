@@ -2,3 +2,7 @@ fastapi
 uvicorn
 google-cloud-firestore
 langchain
+langchain-groq
+langchain-community
+sentence-transformers
+chromadb
