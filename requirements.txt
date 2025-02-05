@@ -6,3 +6,5 @@ langchain-groq
 langchain-community
 sentence-transformers
 chromadb
+langchain_chroma
+langchain_huggingface
