@@ -13,7 +13,7 @@ db = Chroma(persist_directory=PERSISTENT_DIRECTORY, embedding_function=embedding
 retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 1})
 
 # Initialize the Language Model
-llm = ChatGroq(model="llama-3.1-70b-versatile", groq_api_key=GROQ_API_KEY, temperature=0)
+llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=GROQ_API_KEY, temperature=0)
 
 # Define Prompts
 contextualize_q_system_prompt = (
