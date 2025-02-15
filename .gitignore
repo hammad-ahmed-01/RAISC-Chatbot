@@ -80,6 +80,7 @@ secrets.json
 *.json.lock
 *.lock
 chroma_db/
+*.bin
 
 # Ignore local Python dependencies
 requirements.txt.bak
