@@ -7,6 +7,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_huggingface import HuggingFaceEmbeddings
 from app.config import MODEL_NAME, GROQ_API_KEY, PERSISTENT_DIRECTORY
 
+# here localhost:3000 to website, give input in postman for login
+
 # Initialize Embeddings and VectorStore
 embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
 db = Chroma(persist_directory=PERSISTENT_DIRECTORY, embedding_function=embeddings)
