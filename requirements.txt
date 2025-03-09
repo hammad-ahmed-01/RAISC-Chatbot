@@ -8,3 +8,6 @@ sentence-transformers
 chromadb
 langchain_chroma
 langchain_huggingface
+nltk
+openai
+langchain_openai
