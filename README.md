@@ -61,5 +61,5 @@ After setting up everything, start the FastAPI backend.
 uvicorn main:app --reload --port 8000
 ```
 
-### 🤲 **Hopefully this works**
+### **Hopefully this works**
 
