@@ -9,9 +9,6 @@ from app.services.user_service import get_user_data, store_user_data, get_doctor
 from app.services.rag_service import process_user_message
 from app.config import GROQ_API_KEY
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
 nltk.download('vader_lexicon')
 
 # Initialize the VADER analyzer and LLM once
@@ -70,51 +67,21 @@ def reset_sentiment_aggregate() -> dict:
 def check_risk(agg: dict, threshold: float = -0.1) -> bool:
     return agg["average"] < threshold
 
-# Generate a summary and emotional analysis for the current session using cosine similarity
-def fetch_most_relevant_summaries(current_text, past_summaries, top_k=3):
-    if not past_summaries:
-        return []
-
-    # summary_texts = [entry["summary"] for entry in past_summaries]
-
-    summary_texts = [
-    entry["summary"] if isinstance(entry, dict) and "summary" in entry else str(entry)
-    for entry in past_summaries
-]
-    documents = summary_texts + [current_text]
-
-    vectorizer = TfidfVectorizer().fit_transform(documents)
-    vectors = vectorizer.toarray()
-
-    # Compute cosine similarities between current_text and each past summary
-    cosine_scores = cosine_similarity([vectors[-1]], vectors[:-1])[0]
-    ranked_indices = cosine_scores.argsort()[::-1][:top_k]
-
-    # Fetch top_k most relevant summaries
-    relevant_summaries = [summary_texts[idx] for idx in ranked_indices]
-    return relevant_summaries
-
-def generate_conversation_summary(chat_history, session_start_index, past_summaries=None):
+# Generate a summary and emotional analysis for the current session
+def generate_conversation_summary(chat_history, session_start_index, previous_summary=None):
     user_messages = [msg["content"] for msg in chat_history[session_start_index:] if msg.get("role") == "user"]
     if not user_messages:
         summary_text = "No messages to summarize in this session."
     else:
         conversation_text = " ".join(user_messages)
-
-        # Select most relevant past summaries (if available)
-        relevant_summaries = fetch_most_relevant_summaries(conversation_text, past_summaries, top_k=3)
-
         prompt_text = (
             "You are a helpful assistant that summarizes conversations. "
             "Summarize the following conversation concisely, focusing on the key points and overall tone. "
-            "If relevant past summaries are provided, connect the new summary to them, noting any changes, continuations, or new topics. "
-            "Otherwise, just summarize the available conversation."
+            "If a previous summary is provided, relate the new summary to it, noting any changes, continuations, or new topics. "
+            "Otherwise just summarize the available conversation."
         )
-
-        if relevant_summaries:
-            combined_past = " | ".join(relevant_summaries)
-            prompt_text += f"\nRelevant past summaries: {combined_past}\n"
-
+        if previous_summary:
+            prompt_text += f"\nPrevious summary: {previous_summary}\n"
         prompt_text += f"Current conversation: {conversation_text}"
 
         prompt = (
@@ -130,11 +97,12 @@ def generate_conversation_summary(chat_history, session_start_index, past_summar
     min_compound = emotions["min_compound"]
     max_compound = emotions["max_compound"]
 
-    overall_emotion = (
-        "positive" if avg_compound > 0.1
-        else "negative" if avg_compound < -0.1
-        else "neutral"
-    )
+    if avg_compound > 0.1:
+        overall_emotion = "positive"
+    elif avg_compound < -0.1:
+        overall_emotion = "negative"
+    else:
+        overall_emotion = "neutral"
 
     emotional_summary = (
         f"This session included {num_messages} user messages. "
@@ -142,7 +110,7 @@ def generate_conversation_summary(chat_history, session_start_index, past_summar
         f"(min: {min_compound:.2f}, max: {max_compound:.2f}) "
         f"indicating an overall {overall_emotion} tone."
     )
-
+    
     timestamp = datetime.now().isoformat()
     return {
         "summary": summary_text,
@@ -166,15 +134,11 @@ async def process_chat(session_key: str, user_message: str):
         user_data["last_summarized_index"] = 0
     if "questionnaire_completed" not in user_data:
         user_data["questionnaire_completed"] = False
-    # it marks the message number from where the session is starting
     if "session_start_index" not in user_data:
         user_data["session_start_index"] = 0
-    # sessionwise sentiments
     if "session_agg_sentiment" not in user_data:
         user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
-    # to count conversations
-    # if "conversation_count" not in user_data:
-    #     user_data["conversation_count"] = 1
+    
 
     # Get current time
     current_time = datetime.now()
@@ -188,26 +152,18 @@ async def process_chat(session_key: str, user_message: str):
             session_start_index = user_data["session_start_index"]
             previous_summary = user_data["past_summaries"][-1]["summary"] if user_data.get("past_summaries") else None
             summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary)
-            # summary_text = summary_data["summary"]
-
-            # summary with conversation number (conversation number not coming out right later, could be due to the inactivity part where summary is handled as well)
-            # summary_text = f"Conversation #{user_data['conversation_count']} (messages {session_start_index} to {len(chat_history)-1}):\n" + summary_data["summary"]
-            summary_text = f"(Messages {session_start_index} to {len(chat_history)-1}):\n" + summary_data["summary"]
-
+            summary_text = summary_data["summary"]
             emotional_summary = summary_data["emotional_summary"]
-
+            #storing summary with the index number
             user_data["past_summaries"].append({
                 "summary": summary_text,
                 "emotional_summary": emotional_summary,
-                "session_start_msg": session_start_index,
-                "session_end_msg": len(chat_history)-1,
-                "timestamp": summary_data["timestamp"],
-                # "conversation_number": user_data["conversation_count"]
+                "session_index": session_start_index,
+                "timestamp": summary_data["timestamp"]
             })
             user_data["last_summarized_index"] = len(chat_history)
             user_data["session_start_index"] = len(chat_history)  # Start a new session
             user_data["session_agg_sentiment"] = reset_sentiment_aggregate()  # Reset sentiment metrics
-            # user_data["conversation_count"] += 1  # Increment for the next session
             chat_history.append({
                 "role": "assistant",
                 "content": f"Auto-generated summary due to inactivity:\n{summary_text}"
@@ -235,20 +191,13 @@ async def process_chat(session_key: str, user_message: str):
         session_start_index = user_data["session_start_index"]
         previous_summary = user_data["past_summaries"][-1]["summary"] if user_data.get("past_summaries") else None
         summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary)
-
-        # summary with conversation number
-        # summary_text = f"Conversation #{user_data['conversation_count']} (messages {session_start_index} to {len(chat_history)-1}):\n" + summary_data["summary"]
-        summary_text = f"(Messages {session_start_index} to {len(chat_history)-1}):\n" + summary_data["summary"]
+        summary_text = summary_data["summary"]
         emotional_summary = summary_data["emotional_summary"]
         
-        # storing summary with the index number
         user_data["past_summaries"].append({
             "summary": summary_text,
             "emotional_summary": emotional_summary,
-            "session_start_msg": session_start_index,
-            "session_end_msg": len(chat_history)-1,
             "timestamp": summary_data["timestamp"]
-            # "conversation_number": user_data["conversation_count"]
         })
         user_data["last_summarized_index"] = len(chat_history)
         user_data["session_start_index"] = len(chat_history)  # Start a new session
