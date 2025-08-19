@@ -1,6 +1,6 @@
 import requests
 
-DJANGO_BACKEND_URL = "https://web-production-deb22.up.railway.app"
+DJANGO_BACKEND_URL = "http://127.0.0.1:8000/"
 
 def get_user_data(session_key: str) -> dict:
     """

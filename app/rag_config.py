@@ -5,8 +5,9 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_huggingface import HuggingFaceEmbeddings
-from app.config import MODEL_NAME, GROQ_API_KEY, PERSISTENT_DIRECTORY
-
+from app.config import MODEL_NAME, PERSISTENT_DIRECTORY
+from dotenv import load_dotenv
+load_dotenv()
 # here localhost:3000 to website, give input in postman for login
 
 # Initialize Embeddings and VectorStore
@@ -15,7 +16,7 @@ db = Chroma(persist_directory=PERSISTENT_DIRECTORY, embedding_function=embedding
 retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 1})
 
 # Initialize the Language Model
-llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=GROQ_API_KEY, temperature=0)
+llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=os.environ.get("GROQ_API_KEY"), temperature=0)
 
 # Define Prompts
 contextualize_q_system_prompt = (

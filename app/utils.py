@@ -4,13 +4,14 @@ import json
 from google.cloud import firestore
 from google.oauth2 import service_account
 from app.config import PROJECT_ID
-
+from dotenv import load_dotenv
+load_dotenv()
 def get_firestore_client():
     """
     Create and return a Firestore client using credentials from env.
     """
     # Read and decode the base64-encoded credentials
-    encoded_credentials = os.getenv("GOOGLE_CREDENTIALS")
+    encoded_credentials = os.environ.get("GOOGLE_CREDENTIALS")
     if not encoded_credentials:
         raise ValueError("GOOGLE_CREDENTIALS environment variable not set.")
 
