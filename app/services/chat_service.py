@@ -7,13 +7,15 @@ from langchain.schema import SystemMessage, HumanMessage
 from app.services.firestore_service import get_chat_history, save_chat_history
 from app.services.user_service import get_user_data, store_user_data, get_doctor_summary
 from app.services.rag_service import process_user_message
-from app.config import GROQ_API_KEY
+from dotenv import load_dotenv
+load_dotenv()
+import os
 
 nltk.download('vader_lexicon')
 
 # Initialize the VADER analyzer and LLM once
 analyzer = SentimentIntensityAnalyzer()
-llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=GROQ_API_KEY, temperature=0)
+llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=os.environ.get("GROQ_API_KEY"), temperature=0)
 
 # Inactivity threshold
 INACTIVITY_THRESHOLD = timedelta(minutes=1)

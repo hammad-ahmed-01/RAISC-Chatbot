@@ -16,15 +16,7 @@ from livekit.agents import (
     FunctionTool,
     stt,
 )
-from livekit.agents.llm import (
-    LLM,
-    ChatChunk,
-    ChoiceDelta,
-    CompletionUsage,
-    FunctionToolCall,
-    LLMError,
-    LLMStream,
-)
+
 from livekit.plugins import azure, groq, silero, noise_cancellation
 from livekit import rtc
 from typing import AsyncIterable, Optional
@@ -77,6 +69,7 @@ class MentalHealthVoiceAgent(Agent):
         self.chat_history = []
         self.latest_user_message = None  # Store the latest user message from STT
         self.rag_response = None  # Store the RAG response
+        self.initial_greeting_sent = False  # Track if initial greeting was sent
         
     async def process_voice_message(self, session_key: str, message: str) -> str:
         try:
@@ -146,48 +139,20 @@ class MentalHealthVoiceAgent(Agent):
         logger.info(f"Voice session using test user token: {self.session_key}")
         logger.info(f"LiveKit room name: {room_name}")
         
-        # Check if this user session already exists in your backend
+       # Fetch user data BEFORE generating greeting to give appropriate welcome message
         user_data = get_user_data(self.session_key) or {}
-        logger.info(f"Retrieved user data for token {self.session_key}: {user_data}")
+        logger.info(f"Retrieved user data for initial greeting: {user_data}")
         
-        # If no user data exists, create a new session in your backend
-        if not user_data:
-            logger.info(f"Creating new user session in backend for token: {self.session_key}")
-            initial_user_data = {
-                "questionnaire_completed": False,
-                "past_summaries": [],
-                "session_start_index": 0,
-                "last_summarized_index": 0,
-                "session_agg_sentiment": {
-                    "sum": 0.0, 
-                    "count": 0, 
-                    "average": 0.0, 
-                    "min": 0.0, 
-                    "max": 0.0
-                },
-                "risk_intervention_shown": False,
-                "doctor_summary": []
-            }
-            
-            # Store initial data in your Django backend using the user auth token
-            success = store_user_data(self.session_key, initial_user_data)
-            if success:
-                logger.info(f"Successfully created backend user session: {self.session_key}")
-                user_data = initial_user_data
-            else:
-                logger.error(f"Failed to create backend user session: {self.session_key}")
-                # Continue with empty user data for now
-        else:
-            logger.info(f"Existing user session found: {self.session_key}")
-        
-        # Initialize chat history from Firestore (using the same token as session key)
+        # Initialize chat history from Firestore (using the user token as session key)
         self.chat_history = get_chat_history(self.session_key) or []
         
-        # Generate appropriate welcome message based on user's questionnaire status
-        if not user_data.get("questionnaire_completed", False):
-            return "Hi! Welcome to our mental health voice assistant. I'd like to ask you a few questions to get started. What is your name?"
+        # Generate appropriate greeting based on user's profile data
+        if user_data and user_data.get("name"):
+            # Returning user with profile
+            return f"Hi {user_data.get('name')}! Welcome back to our mental health assistant. Say 'start' when you're ready to continue."
         else:
-            return f"Welcome back, {user_data.get('name', 'friend')}! How can I assist you today?"
+            # New user or user without profile
+            return "Hi! Welcome to our mental health voice assistant. Say 'start' when you're ready to begin."
 
     async def stt_node(
         self, 
@@ -202,6 +167,7 @@ class MentalHealthVoiceAgent(Agent):
             logger.info("STT node processing audio...")
             
             # Use the default STT processing first
+           # Use the default STT processing first
             async for event in Agent.default.stt_node(self, audio, model_settings):
                 logger.info(f"STT event type: {type(event)}")
                 logger.info(f"STT event: {event}")
@@ -217,13 +183,22 @@ class MentalHealthVoiceAgent(Agent):
                             # Store the user message and process through RAG
                             self.latest_user_message = transcribed_text
                             
-                            # Process through your RAG system asynchronously
+                            # Process all messages through your existing RAG system
+                            # Let process_chat() handle all logic including "start", "okay", etc.
                             try:
-                                self.rag_response = await self.process_voice_message(
+                                rag_result = await self.process_voice_message(
                                     self.session_key, 
                                     transcribed_text
                                 )
-                                logger.info(f"RAG response ready: {self.rag_response[:100]}...")
+                                
+                                # Handle the case where process_voice_message returns None
+                                if rag_result:
+                                    self.rag_response = rag_result
+                                    logger.info(f"RAG response ready: {self.rag_response[:100]}...")
+                                else:
+                                    logger.warning("RAG processing returned None")
+                                    self.rag_response = "I'm sorry, I'm having trouble processing that. Could you please try again?"
+                                    
                             except Exception as rag_error:
                                 logger.error(f"RAG processing failed: {rag_error}")
                                 self.rag_response = "I'm having trouble understanding. Could you please try again?"
@@ -260,6 +235,12 @@ class MentalHealthVoiceAgent(Agent):
                 self.latest_user_message = None
                 
                 yield response
+                return
+            
+            # If this is the initial greeting (no user input yet), don't use default LLM
+            if not self.initial_greeting_sent:
+                logger.info("Initial greeting phase - skipping LLM processing")
+                self.initial_greeting_sent = True
                 return
             
             # Fallback to default LLM if no RAG response available
@@ -369,14 +350,23 @@ async def entrypoint(ctx: JobContext):
         room_name = ctx.room.name or f"voice_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         welcome_message = await mental_health_agent.initialize_session(room_name)
         
-        # Generate the initial greeting using our mental health agent
         try:
-            await asyncio.wait_for(
-                session.generate_reply(instructions=f"Say this exact message: {welcome_message}"),
-                timeout=30.0
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Initial greeting generation timed out")
+            # Use session.say() instead of agent.say() for initial greeting
+            await session.say(welcome_message, add_to_chat_ctx=False)
+            logger.info(f"Initial greeting sent: {welcome_message}")
+        except Exception as e:
+            logger.error(f"Failed to send initial greeting via session.say(): {e}")
+            # Fallback: try the generate_reply method
+            try:
+                await asyncio.wait_for(
+                    session.generate_reply(instructions=f"Say this exact message: {welcome_message}"),
+                    timeout=30.0
+                )
+                logger.info(f"Initial greeting sent via generate_reply: {welcome_message}")
+            except asyncio.TimeoutError:
+                logger.warning("Initial greeting generation timed out")
+            except Exception as fallback_e:
+                logger.error(f"Fallback greeting also failed: {fallback_e}")
         
     except Exception as e:
         logger.error(f"Entrypoint error: {e}")
