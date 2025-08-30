@@ -158,6 +158,8 @@ async def process_chat(session_key: str, user_message: str):
             user_data["past_summaries"].append({
                 "summary": summary_text,
                 "emotional_summary": emotional_summary,
+                "session_start_msg": session_start_index,
+                "session_end_msg": len(chat_history)-1,
                 "timestamp": summary_data["timestamp"]
             })
             user_data["last_summarized_index"] = len(chat_history)
@@ -196,6 +198,8 @@ async def process_chat(session_key: str, user_message: str):
         user_data["past_summaries"].append({
             "summary": summary_text,
             "emotional_summary": emotional_summary,
+            "session_start_msg": session_start_index,
+            "session_end_msg": len(chat_history)-1,
             "timestamp": summary_data["timestamp"]
         })
         user_data["last_summarized_index"] = len(chat_history)
