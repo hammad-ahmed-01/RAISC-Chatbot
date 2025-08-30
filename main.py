@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import chat, history
+from app.routers import chat, history, partial_history
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 app = FastAPI()
@@ -23,7 +23,7 @@ app.add_middleware(
 # Include routers
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
 app.include_router(history.router, prefix="/api", tags=["History"])
-
+app.include_router(partial_history.router, prefix="/api", tags=["Partial History"])
 
 @app.get("/")
 async def root():
