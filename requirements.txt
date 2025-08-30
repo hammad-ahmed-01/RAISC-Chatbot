@@ -17,6 +17,5 @@ livekit-plugins-groq
 livekit-plugins-deepgram
 livekit-plugins-silero
 asyncio-mqtt
-python-cors
 livekit-plugins-azure
 dotenv
