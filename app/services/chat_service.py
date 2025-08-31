@@ -72,8 +72,11 @@ def check_risk(agg: dict, threshold: float = -0.1) -> bool:
 # Generate a summary and emotional analysis for the current session
 def generate_conversation_summary(chat_history, session_start_index, previous_summary=None):
     user_messages = [msg["content"] for msg in chat_history[session_start_index:] if msg.get("role") == "user"]
+    # in case of no new messages
     if not user_messages:
-        summary_text = "No messages to summarize in this session."
+        # summary_text = " "
+        return None
+        # summary_text = "No messages to summarize in this session."
     else:
         conversation_text = " ".join(user_messages)
         prompt_text = (
@@ -165,10 +168,11 @@ async def process_chat(session_key: str, user_message: str):
             user_data["last_summarized_index"] = len(chat_history)
             user_data["session_start_index"] = len(chat_history)  # Start a new session
             user_data["session_agg_sentiment"] = reset_sentiment_aggregate()  # Reset sentiment metrics
-            chat_history.append({
-                "role": "assistant",
-                "content": f"Auto-generated summary due to inactivity:\n{summary_text}"
-            })
+            # Prints the chat history into the UI
+            # chat_history.append({
+            #     "role": "assistant",
+            #     "content": f"Auto-generated summary due to inactivity:\n{summary_text}"
+            # })
             save_chat_history(session_key, chat_history)
             store_user_data(session_key, user_data)
             print(f"Here's a summary of our last session:\n{summary_text}")
@@ -205,10 +209,11 @@ async def process_chat(session_key: str, user_message: str):
         user_data["last_summarized_index"] = len(chat_history)
         user_data["session_start_index"] = len(chat_history)  # Start a new session
         user_data["session_agg_sentiment"] = reset_sentiment_aggregate()  # Reset sentiment metrics
-        chat_history.append({
-            "role": "assistant",
-            "content": "Here is your session summary:\n" + summary_text,
-        })
+        # Prints the chat history into the UI
+        # chat_history.append({
+        #     "role": "assistant",
+        #     "content": "Here is your session summary:\n" + summary_text,
+        # })
         save_chat_history(session_key, chat_history)
         store_user_data(session_key, user_data)
         return {"response": summary_text}
