@@ -45,27 +45,7 @@ class TranscriptionAgent(Agent):
             logger.info(f"Transcription received: {transcribed_text}")
             
             
-            # session_key = self._get_session_key(turn_ctx)
-            
-            # if session_key:
-            #     # Process through existing chat system
-            #     chat_response = await process_chat(session_key, transcribed_text)
-                
-            #     # Send result back to frontend via data channel
-            #     result = {
-            #         "type": "voice_message_result",
-            #         "transcription": transcribed_text,
-            #         "response": chat_response.get("response", ""),
-            #         "success": True
-            #     }
-            # else:
-            #     logger.error("No session key found, cannot process transcription")
-            #     result = {
-            #         "type": "voice_message_result", 
-            #         "transcription": transcribed_text,
-            #         "response": "Error: Could not process voice message",
-            #         "success": False
-            #     }
+           
             transcribed_text = new_message.text_content.strip()
             logger.info(f"Transcription received: {transcribed_text}")
             

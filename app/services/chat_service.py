@@ -73,47 +73,44 @@ def initialize_information_tracking(user_data: dict) -> dict:
     
     return user_data
 
-def get_next_missing_information(user_data: dict) -> str:
-    """Get the next information that needs to be collected in the defined order"""
-    info_needed = user_data.get("information_needed", {})
+def extract_all_information_from_message(user_message: str) -> dict:
+    """Extract ALL available information from user's message using LLM"""
     
-    # Check in the order defined in REQUIRED_INFORMATION
-    for key in REQUIRED_INFORMATION.keys():
-        if key in info_needed:
-            info = info_needed[key]
-            if info.get("required", True) and not info.get("collected", False):
-                return key
+    # Dynamically build field descriptions from REQUIRED_INFORMATION
+    field_descriptions = []
+    for field_key, field_info in REQUIRED_INFORMATION.items():
+        field_descriptions.append(f"- {field_key}: {field_info['description']}")
     
-    return None
-
-def extract_information_from_message(user_message: str, missing_info_key: str) -> dict:
-    """Extract information from user's message using LLM"""
-    if not missing_info_key:
-        return {}
+    fields_text = "\n    ".join(field_descriptions)
+    field_names = list(REQUIRED_INFORMATION.keys())
     
-    # Create extraction prompt for the specific piece of information
-    if missing_info_key in REQUIRED_INFORMATION:
-        description = REQUIRED_INFORMATION[missing_info_key]["description"]
-    else:
-        return {}
+    # Create example JSON with some of the fields
+    example_fields = list(field_names)[:3]  # Take first 3 fields for example
+    example_json = {field: f"example_{field}_value" for field in example_fields}
+    example_json_str = json.dumps(example_json, indent=8).replace("example_", "")
     
+    # Create a comprehensive extraction prompt for all information at once
     extraction_prompt = f"""
-    Analyze the following user message and extract information about: {missing_info_key} ({description})
+    Analyze the following user message and extract ALL available personal information.
     
     User message: "{user_message}"
     
-    Return your response as a JSON object where the key is "{missing_info_key}" and the value is the extracted information.
-    Only include the key if you found clear information. If no relevant information is found, return an empty JSON object.
+    Extract information for these fields if present in the message:
+    {fields_text}
+    
+    Return your response as a JSON object with these exact field names: {', '.join(field_names)}
+    Only include a field if you found clear, relevant information for it.
+    If no information is found for a field, do not include that field in the JSON.
     
     Example response format:
-    {{"{missing_info_key}": "extracted_value"}}
+    {example_json_str}
     
     Response:
     """
     
     try:
         prompt = [
-            SystemMessage(content="You are an information extraction assistant. Extract personal information from user messages and return it as valid JSON."),
+            SystemMessage(content="You are an information extraction assistant. Extract all available personal information from user messages and return it as valid JSON. Only include fields where you found clear information."),
             HumanMessage(content=extraction_prompt)
         ]
         
@@ -126,8 +123,12 @@ def extract_information_from_message(user_message: str, missing_info_key: str) -
             json_match = re.search(r'\{.*\}', extracted_text, re.DOTALL)
             if json_match:
                 extracted_info = json.loads(json_match.group())
-                return extracted_info
-        except json.JSONDecodeError:
+                # Only return fields that are in REQUIRED_INFORMATION
+                filtered_info = {k: v for k, v in extracted_info.items() if k in REQUIRED_INFORMATION}
+                print(f"Extracted information: {filtered_info}")
+                return filtered_info
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {e}")
             pass
         
         return {}
@@ -144,11 +145,12 @@ def update_collected_information(user_data: dict, extracted_info: dict) -> dict:
     info_needed = user_data.get("information_needed", {})
     
     for key, value in extracted_info.items():
-        if key in info_needed and value and value.strip():
+        if key in info_needed and value and str(value).strip():
             info_needed[key]["collected"] = True
-            info_needed[key]["value"] = value.strip()
+            info_needed[key]["value"] = str(value).strip()
             # Also store in the main user_data for backward compatibility
-            user_data[key] = value.strip()
+            user_data[key] = str(value).strip()
+            print(f"Updated {key}: {value}")
     
     return user_data
 
@@ -158,48 +160,81 @@ def is_questionnaire_complete(user_data: dict) -> bool:
     
     for key, info in info_needed.items():
         if info.get("required", True) and not info.get("collected", False):
+            print(f"Still missing: {key}")
             return False
     
+    print("Questionnaire complete!")
     return True
 
-def create_information_gathering_context(missing_info_key: str, user_data: dict) -> str:
-    """Create strict context for gathering the next specific piece of information"""
-    if not missing_info_key:
+def get_missing_information_list(user_data: dict) -> list:
+    """Get list of missing information fields"""
+    info_needed = user_data.get("information_needed", {})
+    missing = []
+    
+    for key, info in info_needed.items():
+        if info.get("required", True) and not info.get("collected", False):
+            missing.append(key)
+    
+    return missing
+
+def generate_information_gathering_response(chat_history: list, missing_info: list) -> str:
+    """Generate a warm, conversational response asking for missing information (not all at once)"""
+    
+    # Create context about what information is still needed
+    missing_info_context = ", ".join(missing_info)
+    
+    # Create a prompt for natural information gathering
+    info_gathering_prompt = f"""
+    You are a warm, empathetic mental health assistant having a conversation with someone.
+    
+    Based on the conversation so far, you still need to learn about: {missing_info_context}
+    
+    Your task:
+    1. Respond naturally to what the user just said (acknowledge their message)
+    2. Ask for ONE or TWO pieces of missing information in a conversational, caring way
+    3. Do NOT ask for all missing information at once - that feels overwhelming
+    4. Keep the tone warm, supportive, and conversational
+    5. Make it feel like a natural conversation, not an interview
+    6. Be brief but caring (2-3 sentences maximum)
+    
+    IMPORTANT: Do not provide therapeutic advice yet - just gather information warmly.
+    
+    Conversation history:
+    """
+    
+    # Add conversation history to the prompt
+    for message in chat_history[-6:]:  # Last 6 messages for context
+        role = "User" if message["role"] == "user" else "Assistant"
+        info_gathering_prompt += f"\n{role}: {message['content']}"
+    
+    try:
+        prompt = [
+            SystemMessage(content="You are a warm, empathetic mental health assistant gathering information naturally through conversation."),
+            HumanMessage(content=info_gathering_prompt)
+        ]
+        
+        response = llm(prompt)
+        return response.content.strip()
+        
+    except Exception as e:
+        print(f"Error generating information gathering response: {e}")
+        return "I'd like to get to know you better so I can provide the best support. Could you share a bit more about yourself?"
+
+def create_collected_information_context(user_data: dict) -> str:
+    """Create context string with collected information for RAG"""
+    collected_info = []
+    info_needed = user_data.get("information_needed", {})
+    
+    for key, info in info_needed.items():
+        if info.get("collected", False) and info.get("value"):
+            collected_info.append(f"{key}: {info['value']}")
+    
+    if collected_info:
+        return f"Known information about this person: {', '.join(collected_info)}. Use this to personalize your therapeutic support."
+    else:
         return ""
-    
-    # Strict, enforcement-focused context for information gathering
-    context = f"""
-STRICT MODE: INFORMATION GATHERING ONLY
-REQUIRED ACTION: Ask for {missing_info_key} - DO NOT provide therapy yet
-BLOCK: Any therapeutic advice until all information is collected
-ENFORCE: Stay focused on getting {missing_info_key} only
 
-MANDATORY APPROACH:
-- Ask for {missing_info_key} warmly but directly
-- Keep response to 2-3 sentences maximum  
-- DO NOT provide therapeutic responses or advice
-- DO NOT ask follow-up questions about their problems
-- ONLY focus on collecting the {missing_info_key} information
-- Be supportive but BRIEF until you have all needed information
-
-FORBIDDEN: Therapeutic advice, problem exploration, coping strategies, or extensive emotional support until information gathering is complete.
-
-EXAMPLE: "I'd like to help you better. Could you tell me [ask for {missing_info_key}]?"
-"""
-    
-    return context
-
-def create_completion_message(user_data: dict) -> str:
-    """Create a message when information gathering is completed"""
-    name = user_data.get("name", "")
-    
-    message = f"Thank you for sharing that with me{', ' + name if name else ''}! "
-    message += "I feel like I have a good understanding of your situation now. "
-    message += "How can I best support you today?"
-    
-    return message
-
-# Sentiment analysis and summary functions
+# Sentiment analysis and summary functions (unchanged)
 def analyze_sentiment(message: str) -> dict:
     return analyzer.polarity_scores(message)
 
@@ -357,11 +392,8 @@ async def process_chat(session_key: str, user_message: str):
     sentiment = analyze_sentiment(user_message)
     chat_history.append({"role": "user", "content": user_message, "sentiment": sentiment})
 
-    # Get the next missing information in order
-    next_missing_info = get_next_missing_information(user_data)
-    
-    # Extract information from user's message if we're looking for something specific
-    extracted_info = extract_information_from_message(user_message, next_missing_info)
+    # NEW APPROACH: Extract ALL available information from current message
+    extracted_info = extract_all_information_from_message(user_message)
     user_data = update_collected_information(user_data, extracted_info)
 
     # Update questionnaire_completed status
@@ -426,43 +458,35 @@ async def process_chat(session_key: str, user_message: str):
         store_user_data(session_key, user_data)
         return {"response": greeting}
 
-    # Check if information gathering just completed
-    if just_completed:
-        completion_message = create_completion_message(user_data)
-        chat_history.append({"role": "assistant", "content": completion_message})
-        save_chat_history(session_key, chat_history)
-        store_user_data(session_key, user_data)
-        return {"response": completion_message}
-
-    # Get the next missing information in order and enforce strict mode
-    next_missing_info = get_next_missing_information(user_data)
-    
-    # Create context for the unified system with strict enforcement
-    if next_missing_info:
-        # STRICT ENFORCEMENT: Must collect information before therapy
-        info_context = create_information_gathering_context(next_missing_info, user_data)
-        print(f"STRICT MODE ENFORCED: Must collect {next_missing_info} before therapy")
-        print(f"BLOCKING: Therapeutic responses until {next_missing_info} is collected")
+    # NEW LOGIC: Separate information gathering vs therapeutic responses
+    if not user_data["questionnaire_completed"]:
+        # INFORMATION GATHERING MODE - Direct LLM call (no RAG)
+        print("INFORMATION GATHERING MODE: Using direct LLM call")
+        missing_info = get_missing_information_list(user_data)
+        ai_response = generate_information_gathering_response(chat_history, missing_info)
+        
     else:
-        # All information gathered - allow full therapy mode
-        info_context = """
-THERAPY MODE ACTIVATED: All required information has been collected.
-PERMISSION GRANTED: Provide full therapeutic support and guidance.
-USE COLLECTED INFO: Personalize responses using the user's information.
-FULL SUPPORT: Offer coping strategies, emotional support, and mental health advice.
-"""
-        print("THERAPY MODE: All information collected - Full therapeutic support enabled")
-    print(info_context)
-    # Process message through RAG with the unified system
-    session_start_index = user_data["session_start_index"]
-    ai_response = process_user_message(
-        user_message, 
-        chat_history, 
-        user_data, 
-        max_summaries=3, 
-        max_doctor_summaries=2,
-        additional_context=info_context
-    )
+        # THERAPEUTIC MODE - Full RAG processing
+        print("THERAPEUTIC MODE: Using full RAG processing")
+        
+        # Create context with collected information
+        collected_info_context = create_collected_information_context(user_data)
+        
+        # Process message through RAG with collected information context
+        ai_response = process_user_message(
+            user_message, 
+            chat_history, 
+            user_data, 
+            max_summaries=3, 
+            max_doctor_summaries=2,
+            additional_context=collected_info_context
+        )
+
+    # Check if questionnaire was just completed to add a transition message
+    if just_completed:
+        name = user_data.get("name", "")
+        transition_message = f"Thank you for sharing that with me{', ' + name if name else ''}! I feel like I have a good understanding of your situation now. "
+        ai_response = transition_message + ai_response
     
     chat_history.append({"role": "assistant", "content": ai_response})
     save_chat_history(session_key, chat_history)
