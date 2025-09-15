@@ -191,7 +191,7 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
     
     Your task:
     1. Respond naturally to what the user just said (acknowledge their message)
-    2. Ask for ONE or TWO pieces of missing information in a conversational, caring way
+    2. Ask for ONLY ONE piece of missing information in a conversational, caring way
     3. Do NOT ask for all missing information at once - that feels overwhelming
     4. Keep the tone warm, supportive, and conversational
     5. Make it feel like a natural conversation, not an interview
