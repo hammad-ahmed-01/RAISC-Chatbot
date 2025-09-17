@@ -1,3 +1,4 @@
+
 import os
 from langchain_groq import ChatGroq
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
@@ -9,15 +10,24 @@ from app.config import MODEL_NAME, PERSISTENT_DIRECTORY
 from dotenv import load_dotenv
 load_dotenv()
 
-# Initialize Embeddings and VectorStore
+# Initialize Embeddings and VectorStore (shared by both languages)
 embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
 db = Chroma(persist_directory=PERSISTENT_DIRECTORY, embedding_function=embeddings)
 retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 1})
 
-# Initialize the Language Model
-llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=os.environ.get("GROQ_API_KEY"), temperature=0)
+# ENGLISH LLM and RAG Chain
+english_llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=os.environ.get("GROQ_API_KEY"), temperature=0)
 
-# Define Prompts for contextualization (same for both phases)
+# PAKISTANI LLM (separate configuration for better Pakistani responses)
+pakistani_llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    groq_api_key=os.environ.get("GROQ_API_KEY"),
+    temperature=0.2,  # Lower for consistent Pakistani vocabulary
+    max_tokens=150,   
+    top_p=0.85       
+)
+
+# Contextualization prompt (shared by both languages)
 contextualize_q_system_prompt = (
     "Given a chat history and the latest user question "
     "which might reference context in the chat history, "
@@ -34,8 +44,8 @@ contextualize_q_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-# SIMPLIFIED THERAPEUTIC SYSTEM PROMPT (only for therapeutic mode)
-therapeutic_system_prompt = (
+# ENGLISH THERAPEUTIC SYSTEM PROMPT
+english_therapeutic_system_prompt = (
     '''You are a compassionate mental health assistant providing therapeutic support and guidance.
 
     You are now in THERAPEUTIC MODE - all required information has been collected.
@@ -58,20 +68,81 @@ therapeutic_system_prompt = (
 
     IMPORTANT: Keep your responses SHORT and concise - maximum 2-3 sentences.
 
+    Additional Context: {language_context}
+
     \n\n
     {context}'''
 )
 
-# Update prompt templates to use the simplified therapeutic prompt
-qa_prompt = ChatPromptTemplate.from_messages(
+# PAKISTANI THERAPEUTIC SYSTEM PROMPT (for Pakistani RAG chain)
+pakistani_therapeutic_system_prompt = (
+    '''You are a Pakistani mental health counselor from Pakistan. You grew up in a Pakistani household speaking Urdu naturally.
+
+    IDENTITY & NATURAL VOCABULARY:
+    - You use words Pakistani families use: masla (problem), shakhs (person), madad (help), hal (solution), ilaaj (treatment)
+    - You say "pareshani" for worry, "takleef" for pain/trouble, "samajh" for understand
+    - You naturally use Islamic expressions: inshaAllah, mashAllah, alhamdulillah
+    - You speak like talking to a Pakistani friend/family member
+
+    EXAMPLES of your natural Pakistani speech:
+    User: "Main pareshan hoon"
+    You: "Samajh sakta hoon aap mushkil waqt se guzar rahe hain. Kya masla hai? Main aapki madad kar sakta hoon."
+
+    User: "Depression ka kya hal hai?"
+    You: "Depression ka ilaaj possible hai, inshaAllah. Pehle batayiye aapko kya takleef ho rahi hai?"
+
+    THERAPEUTIC APPROACH:
+    - Be warm, empathetic like Pakistani counselors
+    - Use simple, relatable Pakistani expressions  
+    - Keep responses short (2-3 sentences)
+    - Include hope and appropriate Islamic comfort
+    - Sound like a caring Pakistani friend
+
+    LANGUAGE CONSISTENCY: Always use Pakistani Urdu words. Never use formal Hindi words like samasya, vyakti, anubhav, upchar, vyavahar.
+
+    CONTEXT USAGE: You have access to mental health knowledge and information about this person. Use it to provide personalized Pakistani-style support.
+
+    Additional Context: {language_context}
+
+    \n\n
+    {context}'''
+)
+
+# CREATE ENGLISH RAG CHAIN
+english_qa_prompt = ChatPromptTemplate.from_messages(
     [
-        ("system", therapeutic_system_prompt),
+        ("system", english_therapeutic_system_prompt),
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ]
 )
 
-# Create RAG chain for therapeutic responses only
-history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
-rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+english_history_aware_retriever = create_history_aware_retriever(english_llm, retriever, contextualize_q_prompt)
+english_question_answer_chain = create_stuff_documents_chain(english_llm, english_qa_prompt)
+english_rag_chain = create_retrieval_chain(english_history_aware_retriever, english_question_answer_chain)
+
+# CREATE PAKISTANI RAG CHAIN (same structure as English but with Pakistani LLM and prompt)
+pakistani_qa_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", pakistani_therapeutic_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ]
+)
+
+pakistani_history_aware_retriever = create_history_aware_retriever(pakistani_llm, retriever, contextualize_q_prompt)
+pakistani_question_answer_chain = create_stuff_documents_chain(pakistani_llm, pakistani_qa_prompt)
+pakistani_rag_chain = create_retrieval_chain(pakistani_history_aware_retriever, pakistani_question_answer_chain)
+
+# BACKWARDS COMPATIBILITY: Keep the old variable name for existing code
+rag_chain = english_rag_chain
+
+# Export both RAG chains
+__all__ = [
+    'english_rag_chain',     # English RAG processing
+    'pakistani_rag_chain',   # Pakistani RAG processing (NEW!)
+    'retriever',             # Shared document retrieval
+    'rag_chain',             # Backwards compatibility (points to english_rag_chain)
+    'english_llm',           # English LLM
+    'pakistani_llm',         # Pakistani LLM
+]
