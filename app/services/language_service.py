@@ -235,23 +235,23 @@ def get_information_prompts(language: str) -> dict:
     """
     if language == 'roman_urdu':
         return {
-            'name': "Aap mujhe apna naam bata sakte hain? Main aapko kya kehkar bulaaun?",
-            'age': "Aapki umar kitni hai, agar aap comfortable hain toh bataiye?",
-            'gender': "Aap male hain ya female? Ya aap koi aur identity prefer karte hain?",
             'current_condition': "Aap is waqt kaisa feel kar rahe hain? Aapki tabiyat kaisi hai?",
-            'mental_health_history': "Kya aapko pehle kabhi koi mental health ki problem hui hai? Ya family mein kisi ko?",
-            'general': "Main aapko behtar madad kar sakun, is ke liye mujhe aapke baare mein thoda aur jaanna chahiye."
+            'duration': "Aap ko kab say aesa mehsoos horha hai?",
+            'mental_health_history': "Aap ko pehlay kabhi koi zehni masla feel hua hai?",
+            # 'current_condition': "Aap is waqt kaisa feel kar rahe hain? Aapki tabiyat kaisi hai?",
+            'physical_activity': "Kia aap physically active hain? Koi exercise ya activity krtay hain?",
+            'suicidal_thoughts': "Kia aap ko kabhi suicide ka khayal aya hai?"
         }
     else:
         return {
-            'name': "Could you tell me your name? What should I call you?",
-            'age': "If you're comfortable sharing, what's your age?",
-            'gender': "What's your gender identity? Or how would you like me to address you?",
             'current_condition': "How are you feeling right now? What's your current emotional state?",
-            'mental_health_history': "Have you had any mental health concerns before? Or anyone in your family?",
-            'general': "I'd like to know a bit more about you so I can provide better support."
+            'duration': "How long have you been feeling this way?",
+            'mental_health_history': "Do you have any history of mental health issues?",
+            # 'current_condition': "How are you feeling right now? What's your current emotional state?",
+            'physical_activity': "Are you physically active? Do you do exercise of any kind?",
+            'suicidal_thoughts': "Are you experiencing, or have experienced any suicidal thoughts in the past?"
         }
-
+        
 def get_completion_message(language: str, name: str = None) -> str:
     """
     Get questionnaire completion message

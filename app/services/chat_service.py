@@ -10,7 +10,6 @@ from app.services.rag_service import process_user_message
 from app.services.language_service import (
     detect_language, 
     get_greeting_message, 
-    get_information_prompts,
     get_completion_message,
     get_risk_intervention_message,
     get_session_end_message,
@@ -32,40 +31,41 @@ INACTIVITY_THRESHOLD = timedelta(minutes=1)
 
 # Define the information we need to collect
 REQUIRED_INFORMATION = {
-    "name": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "user's preferred name"
-    },
-    "age": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "user's age"
-    },
-    "gender": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "user's gender"
-    },
     "current_condition": {
         "collected": False, 
         "value": None, 
         "required": True,
         "description": "how the user is feeling currently"
     },
+    "duration": {
+        "collected": False, 
+        "value": None, 
+        "required": True,
+        "description": "how long has the user been feeling like this"
+    },
     "mental_health_history": {
         "collected": False, 
         "value": None, 
         "required": True,
         "description": "user's mental health history or family history"
+    },
+    "physical_activity": {
+        "collected": False, 
+        "value": None, 
+        "required": True,
+        "description": "Does the user perform any sort of physical exercise"
+    },
+    "suicidal_thoughts": {
+        "collected": False, 
+        "value": None, 
+        "required": True,
+        "description": "Whether the user has experienced suicidal thoughts"
     }
 }
 
 def initialize_information_tracking(user_data: dict) -> dict:
-    """Initialize or update the information tracking structure"""
+    """Initialize or update the information tracking structure
+    DYNAMICALLY based on REQUIRED_INFORMATION fields"""
     # Ensure user_data is a dictionary
     if not isinstance(user_data, dict):
         user_data = {}
@@ -76,7 +76,7 @@ def initialize_information_tracking(user_data: dict) -> dict:
         for key, value in REQUIRED_INFORMATION.items():
             user_data["information_needed"][key] = value.copy()
     else:
-        # Update existing structure with any new fields
+        # Update existing structure with any new fields from REQUIRED_INFORMATION
         for key, value in REQUIRED_INFORMATION.items():
             if key not in user_data["information_needed"]:
                 user_data["information_needed"][key] = value.copy()
@@ -84,7 +84,9 @@ def initialize_information_tracking(user_data: dict) -> dict:
     return user_data
 
 def extract_all_information_from_message(user_message: str, language: str = "english") -> dict:
-    """Extract ALL available information from user's message using LLM with language awareness"""
+    """Extract ONLY available information from user's message using LLM with language awareness
+    Always stores extracted information in English for consistency
+    ONLY extracts real information - never placeholder values"""
     
     # Dynamically build field descriptions from REQUIRED_INFORMATION
     field_descriptions = []
@@ -95,39 +97,126 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
     field_names = list(REQUIRED_INFORMATION.keys())
     
     # Create example JSON with some of the fields
-    example_fields = list(field_names)[:3]  # Take first 3 fields for example
-    example_json = {field: f"example_{field}_value" for field in example_fields}
-    example_json_str = json.dumps(example_json, indent=8).replace("example_", "")
+    example_fields = list(field_names)[:2]  # Take first 2 fields for example
+    example_json = {field: f"actual_{field}_value" for field in example_fields}
+    example_json_str = json.dumps(example_json, indent=4)
     
-    # Get language context
-    language_context = get_language_context_for_prompts(language)
-    
-    # Create a comprehensive extraction prompt for all information at once
-    extraction_prompt = f"""
-    {language_context}
-    
-    Analyze the following user message and extract ALL available personal information.
-    
-    User message: "{user_message}"
-    
-    Extract information for these fields if present in the message:
-    {fields_text}
-    
-    Return your response as a JSON object with these exact field names: {', '.join(field_names)}
-    Only include a field if you found clear, relevant information for it.
-    If no information is found for a field, do not include that field in the JSON.
-    
-    IMPORTANT: If the message is in Roman Urdu, extract the information but respond with the JSON in English field names.
-    
-    Example response format:
-    {example_json_str}
-    
-    Response:
-    """
+    # Language-aware extraction prompt that ONLY outputs real information
+    if language == 'roman_urdu':
+        extraction_prompt = f"""
+        You are extracting information from a Pakistani Roman Urdu message. 
+        
+        User message (in Roman Urdu): "{user_message}"
+        
+        Extract information for these fields ONLY if clearly present in the message:
+        {fields_text}
+        
+        CRITICAL INSTRUCTIONS:
+        1. Understand the Roman Urdu message (Pakistani Urdu written in Latin script)
+        2. ONLY extract information that is CLEARLY and EXPLICITLY mentioned
+        3. TRANSLATE all extracted information to English before putting in JSON
+        4. Return JSON with English field names AND English values
+        5. DO NOT include fields where information is not clearly present
+        6. DO NOT use placeholder values like "No information available" or "Not specified"
+        7. ONLY include a field if you found REAL, CLEAR information for it
+        
+        TRANSLATION EXAMPLES (including vague/indirect Roman Urdu responses):
+        - If user says "Main bohat pareshan hoon depression ke wajah se" → extract as "current_condition": "very distressed due to depression"
+        - If user says "Mujhe 2 mahine se aisa lag raha hai" → extract as "duration": "2 months"
+        - If user says "Pehle bhi anxiety hui thi" → extract as "mental_health_history": "previously experienced anxiety"
+        - If user says "Main roz gym jata hoon" → extract as "physical_activity": "goes to gym daily"
+        - If user says "Kabhi suicide ka khayal nahi aya" → extract as "suicidal_thoughts": "no suicidal thoughts"
+        - If user says "Nahi, mujhe koi zehni masla nahi hua" → extract as "mental_health_history": "no mental health history"
+        - If user says "Main bilkul exercise nahi karta" → extract as "physical_activity": "no exercise"
+        - If user says "Nahi, main theek hoon" → extract as "current_condition": "feeling okay"
+        - If user says "Mujhe pata nahi" → extract as "mental_health_history": "no known mental health history"
+        - If user says "Kuch khas nahi" → extract as "mental_health_history": "no mental health history"
+        - If user says "Aisa kuch nahi hai" → extract as "mental_health_history": "no mental health history"
+        - If user says "Thoda theek hoon" → extract as "current_condition": "somewhat okay"
+        - If user says "Abhi abhi hua hai" → extract as "duration": "recent"
+        - If user says "Kafi time se" → extract as "duration": "long time"
+        - If user says "Kabhi kabhi walk karta hoon" → extract as "physical_activity": "occasional walking"
+        - If user says "Pehle karta tha ab nahi" → extract as "physical_activity": "used to exercise, not now"
+        - If user says "Koshish karta hoon" → extract as "physical_activity": "tries to exercise"
+        
+        IMPORTANT: If the message doesn't contain clear information for any field, return an empty JSON object: {{}}
+        
+        Available fields to extract: {', '.join(field_names)}
+        
+        Example response format (only include fields with actual data):
+        {example_json_str}
+        
+        Response (JSON with only fields that have real information):
+        """
+    else:
+        # English extraction with strict requirements
+        extraction_prompt = f"""
+        Analyze the following user message and extract ONLY information that is clearly and explicitly mentioned.
+        
+        User message: "{user_message}"
+        
+        Extract information for these fields ONLY if clearly present in the message:
+        {fields_text}
+        
+        LENIENT REQUIREMENTS:
+        1. Extract information that is reasonably clear or can be inferred from context
+        2. Accept vague responses and interpret them appropriately
+        3. DO NOT include placeholder values like "No information available", "Not specified", "Unknown"
+        4. Include information even if it's not perfectly explicit - users often speak casually
+        5. TREAT DENIAL/NEGATIVE RESPONSES AS VALID INFORMATION (e.g., "not aware of", "don't think so", "nothing", "no")
+        6. Accept indirect answers and reasonable interpretations
+        7. If absolutely no relevant information can be extracted, return an empty JSON object: {{}}
+        
+        EXAMPLES of what to extract (including vague/indirect responses):
+        - "I'm feeling very anxious" → "current_condition": "very anxious"
+        - "I've been like this for 3 weeks" → "duration": "3 weeks" 
+        - "I have a history of depression" → "mental_health_history": "history of depression"
+        - "I exercise daily" → "physical_activity": "exercises daily"
+        - "I have never had suicidal thoughts" → "suicidal_thoughts": "no suicidal thoughts"
+        - "No, I don't have any mental health history" → "mental_health_history": "no mental health history"
+        - "I don't exercise at all" → "physical_activity": "no exercise"
+        - "No, I've never thought about suicide" → "suicidal_thoughts": "no suicidal thoughts"
+        - "I haven't been feeling this way for long" → "duration": "short duration"
+        - "Not that I'm aware of" → "mental_health_history": "no known mental health history"
+        - "I haven't noticed anything out of the ordinary" → "mental_health_history": "no mental health history"
+        - "There hasn't been as far as I'm aware" → "mental_health_history": "no mental health history"
+        - "Nothing comes to mind" → "mental_health_history": "no mental health history"
+        - "I don't think so" → "mental_health_history": "no mental health history"
+        - "Not really" → "mental_health_history": "no mental health history"
+        - "I'm okay I guess" → "current_condition": "okay"
+        - "Could be better" → "current_condition": "not great"
+        - "Same as usual" → "current_condition": "usual state"
+        - "A while now" → "duration": "some time"
+        - "Recently" → "duration": "recent"
+        - "It's been tough lately" → "current_condition": "struggling recently"
+        - "Sometimes I go for walks" → "physical_activity": "occasional walking"
+        - "Used to exercise but not anymore" → "physical_activity": "previously exercised, not currently"
+        - "I try to stay active" → "physical_activity": "tries to stay active"
+        - "Never really thought about it" → "suicidal_thoughts": "no suicidal thoughts"
+        
+        EXAMPLES of what NOT to extract:
+        - Single words without context "Good" → {{}} (too vague without context about what field)
+        - Completely unrelated responses "What's the weather?" → {{}} (not relevant to any field)
+        - Pure greetings "Hi there!" → {{}} (not relevant information)
+        
+        IMPORTANT: Be lenient and interpretive. Users often give casual, conversational answers that contain useful information even if not perfectly direct.
+        
+        Available fields to extract: {', '.join(field_names)}
+        
+        Example response format (only include fields with actual data):
+        {example_json_str}
+        
+        Response (JSON with only fields that have clear information):
+        """
     
     try:
+        if language == 'roman_urdu':
+            system_message = "You are an expert in Pakistani Roman Urdu who extracts ONLY clearly mentioned information and translates it to English. You NEVER use placeholder values and ONLY extract information that is explicitly stated. If no clear information is found, you return an empty JSON object."
+        else:
+            system_message = "You are a strict information extraction assistant. You ONLY extract information that is clearly and explicitly mentioned in the message. You NEVER use placeholder values or make assumptions. If no clear information is found, you return an empty JSON object."
+        
         prompt = [
-            SystemMessage(content="You are an information extraction assistant. Extract all available personal information from user messages and return it as valid JSON. Only include fields where you found clear information. Handle both English and Pakistani Roman Urdu messages."),
+            SystemMessage(content=system_message),
             HumanMessage(content=extraction_prompt)
         ]
         
@@ -140,14 +229,22 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
             json_match = re.search(r'\{.*\}', extracted_text, re.DOTALL)
             if json_match:
                 extracted_info = json.loads(json_match.group())
-                # Only return fields that are in REQUIRED_INFORMATION
-                filtered_info = {k: v for k, v in extracted_info.items() if k in REQUIRED_INFORMATION}
-                print(f"Extracted information: {filtered_info}")
-                return filtered_info
+                
+                # Filter to only include valid fields from REQUIRED_INFORMATION
+                filtered_info = {k: v for k, v in extracted_info.items() 
+                               if k in REQUIRED_INFORMATION and v and str(v).strip()}
+                
+                if filtered_info:
+                    print(f"Extracted information: {filtered_info}")
+                    return filtered_info
+                else:
+                    print("No valid information extracted")
+                    return {}
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {e}")
             pass
         
+        print("No information could be extracted from the message")
         return {}
         
     except Exception as e:
@@ -172,39 +269,150 @@ def update_collected_information(user_data: dict, extracted_info: dict) -> dict:
     return user_data
 
 def is_questionnaire_complete(user_data: dict) -> bool:
-    """Check if all required information has been collected"""
+    """Check if all required information has been collected
+    DYNAMICALLY checks based on REQUIRED_INFORMATION fields"""
     info_needed = user_data.get("information_needed", {})
     
-    for key, info in info_needed.items():
-        if info.get("required", True) and not info.get("collected", False):
-            print(f"Still missing: {key}")
-            return False
+    # Check all fields in REQUIRED_INFORMATION
+    for key, info in REQUIRED_INFORMATION.items():
+        if info.get("required", True):
+            # Check if this field exists in user's info_needed and is collected
+            user_field_info = info_needed.get(key, {})
+            if not user_field_info.get("collected", False):
+                print(f"Still missing: {key}")
+                return False
     
     print("Questionnaire complete!")
     return True
 
 def get_missing_information_list(user_data: dict) -> list:
-    """Get list of missing information fields"""
+    """Get list of missing information fields
+    DYNAMICALLY based on REQUIRED_INFORMATION fields"""
     info_needed = user_data.get("information_needed", {})
     missing = []
     
-    for key, info in info_needed.items():
-        if info.get("required", True) and not info.get("collected", False):
-            missing.append(key)
+    # Check all fields in REQUIRED_INFORMATION
+    for key, info in REQUIRED_INFORMATION.items():
+        if info.get("required", True):
+            # Check if this field exists in user's info_needed and is collected
+            user_field_info = info_needed.get(key, {})
+            if not user_field_info.get("collected", False):
+                missing.append(key)
     
     return missing
 
-def generate_information_gathering_response(chat_history: list, missing_info: list, language: str = "english") -> str:
-    """Generate a warm, conversational response asking for missing information with language awareness"""
+def generate_dynamic_question(missing_field: str, field_description: str, language: str, chat_history: list) -> str:
+    """
+    Generate a contextual question for a specific missing field using LLM
+    No premade prompts - fully dynamic based on field name and description
+    """
     
-    # Get language-appropriate prompts
-    info_prompts = get_information_prompts(language)
+    # Get the user's last message for context
+    user_last_message = ""
+    if chat_history:
+        last_messages = [msg for msg in chat_history[-3:] if msg.get("role") == "user"]
+        if last_messages:
+            user_last_message = last_messages[-1]["content"]
+    
+    # Get language context
+    language_context = get_language_context_for_prompts(language)
+    
+    # Create dynamic question generation prompt
+    if language == 'roman_urdu':
+        generation_prompt = f"""
+        {language_context}
+        
+        You are a warm, empathetic Pakistani mental health assistant. 
+        
+        TASK: Generate a natural, conversational question to ask about: "{missing_field}"
+        
+        FIELD INFORMATION:
+        - Field name: {missing_field}
+        - What we need to know: {field_description}
+        
+        USER'S LAST MESSAGE: "{user_last_message}"
+        
+        INSTRUCTIONS:
+        1. If the user just said something, briefly acknowledge it (1 sentence)
+        2. Then ask about the missing field naturally
+        3. Make the question warm and non-threatening
+        4. Use Pakistani cultural context and Islamic expressions when appropriate
+        5. Keep it conversational - like talking to a friend
+        6. Maximum 2-3 sentences total
+        7. Use simple Pakistani Urdu words, avoid formal Hindi
+        
+        EXAMPLES of natural questioning style:
+        - For "current_condition": "Samajh sakta hoon. Batayiye, aap is waqt kaisa feel kar rahe hain?"
+        - For "duration": "Theek hai. Yeh feeling aapko kab se ho rahi hai?"
+        - For "physical_activity": "Acha. Kya aap koi exercise ya physical activity karte hain?"
+        
+        Generate a natural question about "{missing_field}":
+        """
+    else:
+        generation_prompt = f"""
+        You are a warm, empathetic mental health assistant.
+        
+        TASK: Generate a natural, conversational question to ask about: "{missing_field}"
+        
+        FIELD INFORMATION:
+        - Field name: {missing_field}
+        - What we need to know: {field_description}
+        
+        USER'S LAST MESSAGE: "{user_last_message}"
+        
+        INSTRUCTIONS:
+        1. If the user just said something, briefly acknowledge it (1 sentence)
+        2. Then ask about the missing field naturally
+        3. Make the question warm and non-threatening
+        4. Keep it conversational and approachable
+        5. Maximum 2-3 sentences total
+        6. Be professional but friendly
+        
+        EXAMPLES of natural questioning style:
+        - For "current_condition": "I understand. How are you feeling right now?"
+        - For "duration": "Thank you for sharing. How long have you been experiencing this?"
+        - For "physical_activity": "I see. Do you engage in any physical activities or exercise?"
+        
+        Generate a natural question about "{missing_field}":
+        """
+    
+    try:
+        prompt = [
+            SystemMessage(content="You are a skilled mental health assistant who asks natural, empathetic questions. Generate warm, conversational questions that feel like talking to a caring friend or counselor."),
+            HumanMessage(content=generation_prompt)
+        ]
+        
+        response = llm(prompt)
+        generated_question = response.content.strip()
+        
+        # Ensure the response isn't too long
+        sentences = generated_question.split('. ')
+        if len(sentences) > 3:
+            generated_question = '. '.join(sentences[:3]) + '.'
+        
+        print(f"Generated dynamic question for {missing_field}: {generated_question}")
+        return generated_question
+        
+    except Exception as e:
+        print(f"Error generating dynamic question: {e}")
+        # Simple fallback
+        if language == 'roman_urdu':
+            return f"Kya aap mujhe {field_description} ke baare mein bata sakte hain?"
+        else:
+            return f"Could you tell me about {field_description}?"
+
+def generate_information_gathering_response(chat_history: list, missing_info: list, language: str = "english") -> str:
+    """Generate a warm, conversational response asking for missing information
+    Uses LLM to dynamically generate questions based on REQUIRED_INFORMATION fields"""
     
     if not missing_info:
-        return info_prompts.get('general', "Thank you for sharing that information with me!")
+        if language == 'roman_urdu':
+            return "Shukriya! Ab mujhe aapke baare mein kaafi maloom hai."
+        else:
+            return "Thank you! I now have a good understanding about you."
     
     # Prioritize which information to ask for first (based on conversation flow)
-    priority_order = ['name', 'current_condition', 'age', 'gender', 'mental_health_history']
+    priority_order = ['current_condition', 'duration', 'mental_health_history', 'physical_activity', 'suicidal_thoughts']
     next_info_to_ask = None
     
     # Find the highest priority missing information
@@ -219,56 +427,12 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
     
     print(f"Asking for: {next_info_to_ask} (missing: {missing_info})")
     
-    # Get the specific prompt for this information type
-    specific_prompt = info_prompts.get(next_info_to_ask, info_prompts.get('general'))
+    # Get the field description from REQUIRED_INFORMATION
+    field_info = REQUIRED_INFORMATION.get(next_info_to_ask, {})
+    field_description = field_info.get("description", next_info_to_ask)
     
-    # Check if we need to acknowledge what the user just said
-    user_last_message = ""
-    if chat_history:
-        last_messages = [msg for msg in chat_history[-3:] if msg.get("role") == "user"]
-        if last_messages:
-            user_last_message = last_messages[-1]["content"]
-    
-    # Generate contextual response that acknowledges user input + asks specific question
-    if user_last_message:
-        # Create context about what information is still needed (for LLM understanding)
-        missing_info_context = ", ".join(missing_info)
-        
-        # Get language context for the LLM
-        language_context = get_language_context_for_prompts(language)
-        
-        # Create a prompt that combines acknowledgment + specific question
-        contextual_prompt = f"""
-        {language_context}
-        
-        You are a warm, empathetic mental health assistant. The user just said: "{user_last_message}"
-        
-        Your task:
-        1. Briefly acknowledge what the user said (1 sentence)
-        2. Then ask this EXACT question: "{specific_prompt}"
-        3. Keep it natural and flowing
-        4. Be warm and supportive
-        5. Maximum 2-3 sentences total
-        
-        IMPORTANT: Do not provide therapeutic advice yet - just acknowledge and ask the specific question.
-        """
-        
-        try:
-            prompt = [
-                SystemMessage(content="You are a warm, empathetic mental health assistant gathering information naturally. Acknowledge the user's input and ask the specific question provided."),
-                HumanMessage(content=contextual_prompt)
-            ]
-            
-            response = llm(prompt)
-            return response.content.strip()
-            
-        except Exception as e:
-            print(f"Error generating contextual response: {e}")
-            # Fallback to direct question
-            return specific_prompt
-    else:
-        # No previous user message, just ask the specific question
-        return specific_prompt
+    # Generate dynamic question using LLM
+    return generate_dynamic_question(next_info_to_ask, field_description, language, chat_history)
 
 def create_collected_information_context(user_data: dict, language: str = "english") -> str:
     """Create context string with collected information for RAG"""
@@ -458,7 +622,9 @@ async def process_chat(session_key: str, user_message: str):
         if time_since_last >= INACTIVITY_THRESHOLD and chat_history:
             session_start_index = user_data["session_start_index"]
             previous_summary = user_data["past_summaries"][-1]["summary"] if user_data.get("past_summaries") else None
-            summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, detected_language)
+            
+            # ALWAYS generate summary in English for backend storage (not user's language)
+            summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, "english")
             summary_text = summary_data["summary"]
             emotional_summary = summary_data["emotional_summary"]
 
@@ -471,18 +637,13 @@ async def process_chat(session_key: str, user_message: str):
             user_data["session_start_index"] = len(chat_history)
             user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
             
-            # Language-aware auto-summary message
-            if detected_language == 'roman_urdu':
-                auto_summary_msg = f"Inactivity ke wajah se auto-generated summary:\n{summary_text}"
-            else:
-                auto_summary_msg = f"Auto-generated summary due to inactivity:\n{summary_text}"
-                
-            chat_history.append({
-                "role": "assistant",
-                "content": auto_summary_msg
-            })
-            save_chat_history(session_key, chat_history)
+            # REMOVED: No longer adding auto-summary message to chat history
+            # The summary is now stored silently in backend for processing only
+            
+            # Save user data with the new summary (but don't save chat history since we didn't modify it)
             store_user_data(session_key, user_data)
+            
+            print(f"[BACKEND] Auto-generated summary stored silently: {summary_text[:100]}...")
 
     # Analyze sentiment of the user's message
     sentiment = analyze_sentiment(user_message)
@@ -520,7 +681,9 @@ async def process_chat(session_key: str, user_message: str):
     if is_ending_session:
         session_start_index = user_data["session_start_index"]
         previous_summary = user_data["past_summaries"][-1]["summary"] if user_data.get("past_summaries") else None
-        summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, detected_language)
+        
+        # ALWAYS generate summary in English for backend storage
+        summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, "english")
         summary_text = summary_data["summary"]
         emotional_summary = summary_data["emotional_summary"]
         
@@ -533,14 +696,21 @@ async def process_chat(session_key: str, user_message: str):
         user_data["session_start_index"] = len(chat_history)
         user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
         
-        session_end_prefix = get_session_end_message(detected_language)
+        # Provide a simple goodbye message in user's language instead of showing summary
+        if detected_language == 'roman_urdu':
+            goodbye_msg = "Aap se baat kar ke acha laga. Allah hafiz aur khyal rakhiye apna!"
+        else:
+            goodbye_msg = "Thank you for chatting with me today. Take care and feel free to return anytime!"
+        
         chat_history.append({
             "role": "assistant",
-            "content": session_end_prefix + "\n" + summary_text,
+            "content": goodbye_msg,
         })
         save_chat_history(session_key, chat_history)
         store_user_data(session_key, user_data)
-        return {"response": summary_text}
+        
+        print(f"[BACKEND] Session end summary stored silently: {summary_text[:100]}...")
+        return {"response": goodbye_msg}
 
     # Risk intervention logic with language awareness
     # if check_risk(session_agg_sentiment) and not user_data.get("risk_intervention_shown", False):
@@ -562,8 +732,8 @@ async def process_chat(session_key: str, user_message: str):
 
     # Separate information gathering vs therapeutic responses with language awareness
     if not user_data["questionnaire_completed"]:
-        # INFORMATION GATHERING MODE - Direct LLM call with language awareness
-        print("INFORMATION GATHERING MODE: Using direct LLM call with language awareness")
+        # INFORMATION GATHERING MODE - Dynamic LLM-generated questions
+        print("INFORMATION GATHERING MODE: Using dynamic LLM-generated questions")
         missing_info = get_missing_information_list(user_data)
         ai_response = generate_information_gathering_response(chat_history, missing_info, detected_language)
         
@@ -587,7 +757,12 @@ async def process_chat(session_key: str, user_message: str):
 
     # Check if questionnaire was just completed to add a transition message
     if just_completed:
-        name = user_data.get("name", "")
+        # Get collected name for personalization
+        name = ""
+        info_needed = user_data.get("information_needed", {})
+        if "name" in info_needed and info_needed["name"].get("collected", False):
+            name = info_needed["name"].get("value", "")
+        
         transition_message = get_completion_message(detected_language, name)
         ai_response = transition_message + ai_response
     
