@@ -43,6 +43,7 @@ REQUIRED_INFORMATION = {
         "required": True,
         "description": "how long has the user been feeling like this"
     },
+
     "mental_health_history": {
         "collected": False, 
         "value": None, 
@@ -62,7 +63,6 @@ REQUIRED_INFORMATION = {
         "description": "Whether the user has experienced suicidal thoughts"
     }
 }
-
 def initialize_information_tracking(user_data: dict) -> dict:
     """Initialize or update the information tracking structure
     DYNAMICALLY based on REQUIRED_INFORMATION fields"""
@@ -82,34 +82,28 @@ def initialize_information_tracking(user_data: dict) -> dict:
                 user_data["information_needed"][key] = value.copy()
     
     return user_data
-
-def extract_all_information_from_message(user_message: str, language: str = "english") -> dict:
-    """Extract ONLY available information from user's message using LLM with language awareness
+def extract_all_information_from_message(user_message: str, current_missing_field: str, language: str = "english") -> dict:
+    """Extract ONLY information for the current missing field from user's message using LLM with language awareness
     Always stores extracted information in English for consistency
     ONLY extracts real information - never placeholder values"""
     
-    # Dynamically build field descriptions from REQUIRED_INFORMATION
-    field_descriptions = []
-    for field_key, field_info in REQUIRED_INFORMATION.items():
-        field_descriptions.append(f"- {field_key}: {field_info['description']}")
+    # Get the description for the current missing field
+    current_field_info = REQUIRED_INFORMATION.get(current_missing_field, {})
+    current_field_description = current_field_info.get('description', current_missing_field)
     
-    fields_text = "\n    ".join(field_descriptions)
-    field_names = list(REQUIRED_INFORMATION.keys())
-    
-    # Create example JSON with some of the fields
-    example_fields = list(field_names)[:2]  # Take first 2 fields for example
-    example_json = {field: f"actual_{field}_value" for field in example_fields}
+    # Create example JSON with only the current field
+    example_json = {current_missing_field: f"actual_{current_missing_field}_value"}
     example_json_str = json.dumps(example_json, indent=4)
     
-    # Language-aware extraction prompt that ONLY outputs real information
+    # Language-aware extraction prompt that ONLY outputs real information for the current field
     if language == 'roman_urdu':
         extraction_prompt = f"""
         You are extracting information from a Pakistani Roman Urdu message. 
         
         User message (in Roman Urdu): "{user_message}"
         
-        Extract information for these fields ONLY if clearly present in the message:
-        {fields_text}
+        Extract information for this field ONLY if clearly present in the message:
+        - {current_missing_field}: {current_field_description}
         
         CRITICAL INSTRUCTIONS:
         1. Understand the Roman Urdu message (Pakistani Urdu written in Latin script)
@@ -119,6 +113,7 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
         5. DO NOT include fields where information is not clearly present
         6. DO NOT use placeholder values like "No information available" or "Not specified"
         7. ONLY include a field if you found REAL, CLEAR information for it
+        8. You have to ONLY extract the following field: {current_missing_field}. Do not under any circumstances extract anything else.
         
         TRANSLATION EXAMPLES (including vague/indirect Roman Urdu responses):
         - If user says "Main bohat pareshan hoon depression ke wajah se" → extract as "current_condition": "very distressed due to depression"
@@ -139,14 +134,14 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
         - If user says "Pehle karta tha ab nahi" → extract as "physical_activity": "used to exercise, not now"
         - If user says "Koshish karta hoon" → extract as "physical_activity": "tries to exercise"
         
-        IMPORTANT: If the message doesn't contain clear information for any field, return an empty JSON object: {{}}
+        IMPORTANT: If the message doesn't contain clear information for the field "{current_missing_field}", return an empty JSON object: {{}}
         
-        Available fields to extract: {', '.join(field_names)}
+        Current field to extract: {current_missing_field}
         
-        Example response format (only include fields with actual data):
+        Example response format (only include the field if it has actual data):
         {example_json_str}
         
-        Response (JSON with only fields that have real information):
+        Response (JSON with only the current field if it has real information):
         """
     else:
         # English extraction with strict requirements
@@ -155,8 +150,8 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
         
         User message: "{user_message}"
         
-        Extract information for these fields ONLY if clearly present in the message:
-        {fields_text}
+        Extract information for this field ONLY if clearly present in the message:
+        - {current_missing_field}: {current_field_description}
         
         LENIENT REQUIREMENTS:
         1. Extract information that is reasonably clear or can be inferred from context
@@ -166,6 +161,7 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
         5. TREAT DENIAL/NEGATIVE RESPONSES AS VALID INFORMATION (e.g., "not aware of", "don't think so", "nothing", "no")
         6. Accept indirect answers and reasonable interpretations
         7. If absolutely no relevant information can be extracted, return an empty JSON object: {{}}
+        8. You have to ONLY extract the following field: {current_missing_field}. If the user gives DENIAL/NEGATIVE RESPONSES, Treat it as valid information and extract that as well.
         
         EXAMPLES of what to extract (including vague/indirect responses):
         - "I'm feeling very anxious" → "current_condition": "very anxious"
@@ -201,19 +197,19 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
         
         IMPORTANT: Be lenient and interpretive. Users often give casual, conversational answers that contain useful information even if not perfectly direct.
         
-        Available fields to extract: {', '.join(field_names)}
+        Current field to extract: {current_missing_field}
         
-        Example response format (only include fields with actual data):
+        Example response format (only include the field if it has actual data):
         {example_json_str}
         
-        Response (JSON with only fields that have clear information):
+        Response (JSON with only the current field if it has clear information):
         """
     
     try:
         if language == 'roman_urdu':
-            system_message = "You are an expert in Pakistani Roman Urdu who extracts ONLY clearly mentioned information and translates it to English. You NEVER use placeholder values and ONLY extract information that is explicitly stated. If no clear information is found, you return an empty JSON object."
+            system_message = f"You are an expert in Pakistani Roman Urdu who extracts ONLY clearly mentioned information for the field '{current_missing_field}' and translates it to English. You NEVER use placeholder values and ONLY extract information that is explicitly stated. If no clear information is found, you return an empty JSON object."
         else:
-            system_message = "You are a strict information extraction assistant. You ONLY extract information that is clearly and explicitly mentioned in the message. You NEVER use placeholder values or make assumptions. If no clear information is found, you return an empty JSON object."
+            system_message = f"You are a strict information extraction assistant. You ONLY extract information for the field '{current_missing_field}' that is clearly and explicitly mentioned in the message. You NEVER use placeholder values or make assumptions. If no clear information is found, you return an empty JSON object."
         
         prompt = [
             SystemMessage(content=system_message),
@@ -230,21 +226,22 @@ def extract_all_information_from_message(user_message: str, language: str = "eng
             if json_match:
                 extracted_info = json.loads(json_match.group())
                 
-                # Filter to only include valid fields from REQUIRED_INFORMATION
-                filtered_info = {k: v for k, v in extracted_info.items() 
-                               if k in REQUIRED_INFORMATION and v and str(v).strip()}
+                # Filter to only include the current missing field if it exists and has value
+                filtered_info = {}
+                if current_missing_field in extracted_info and extracted_info[current_missing_field] and str(extracted_info[current_missing_field]).strip():
+                    filtered_info[current_missing_field] = extracted_info[current_missing_field]
                 
                 if filtered_info:
-                    print(f"Extracted information: {filtered_info}")
+                    print(f"Extracted information for {current_missing_field}: {filtered_info}")
                     return filtered_info
                 else:
-                    print("No valid information extracted")
+                    print(f"No valid information extracted for field: {current_missing_field}")
                     return {}
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {e}")
             pass
         
-        print("No information could be extracted from the message")
+        print(f"No information could be extracted from the message for field: {current_missing_field}")
         return {}
         
     except Exception as e:
@@ -649,8 +646,15 @@ async def process_chat(session_key: str, user_message: str):
     sentiment = analyze_sentiment(user_message)
     chat_history.append({"role": "user", "content": user_message, "sentiment": sentiment})
 
-    # Extract information with language awareness
-    extracted_info = extract_all_information_from_message(user_message, detected_language)
+    missing_info = get_missing_information_list(user_data)
+    current_missing_field = missing_info[0] if missing_info else None
+
+    # Only extract if there's a missing field
+    if current_missing_field:
+        extracted_info = extract_all_information_from_message(user_message, current_missing_field, detected_language)
+        user_data = update_collected_information(user_data, extracted_info)
+    else:
+        extracted_info = {}
     user_data = update_collected_information(user_data, extracted_info)
 
     # Update questionnaire_completed status
