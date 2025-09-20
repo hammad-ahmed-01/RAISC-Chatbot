@@ -740,6 +740,17 @@ async def process_chat(session_key: str, user_message: str):
         print("INFORMATION GATHERING MODE: Using dynamic LLM-generated questions")
         missing_info = get_missing_information_list(user_data)
         ai_response = generate_information_gathering_response(chat_history, missing_info, detected_language)
+
+        # Check if questionnaire was just completed to add a transition message
+        if just_completed:
+            # Get collected name for personalization
+            name = ""
+            info_needed = user_data.get("information_needed", {})
+            if "name" in info_needed and info_needed["name"].get("collected", False):
+                name = info_needed["name"].get("value", "")
+            
+            transition_message = get_completion_message(detected_language, name)
+            ai_response = transition_message + ai_response
         
     else:
         # THERAPEUTIC MODE - Full RAG processing with language awareness
@@ -759,16 +770,7 @@ async def process_chat(session_key: str, user_message: str):
             language=detected_language
         )
 
-    # Check if questionnaire was just completed to add a transition message
-    if just_completed:
-        # Get collected name for personalization
-        name = ""
-        info_needed = user_data.get("information_needed", {})
-        if "name" in info_needed and info_needed["name"].get("collected", False):
-            name = info_needed["name"].get("value", "")
-        
-        transition_message = get_completion_message(detected_language, name)
-        ai_response = transition_message + ai_response
+    
     
     chat_history.append({"role": "assistant", "content": ai_response})
     save_chat_history(session_key, chat_history)

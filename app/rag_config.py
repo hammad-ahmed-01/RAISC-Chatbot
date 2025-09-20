@@ -16,7 +16,7 @@ db = Chroma(persist_directory=PERSISTENT_DIRECTORY, embedding_function=embedding
 retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 1})
 
 # ENGLISH LLM and RAG Chain
-english_llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=os.environ.get("GROQ_API_KEY"), temperature=0)
+english_llm = ChatGroq(model="llama-3.1-8b-instant", groq_api_key=os.environ.get("GROQ_API_KEY"), temperature=0)
 
 # PAKISTANI LLM (separate configuration for better Pakistani responses)
 pakistani_llm = ChatGroq(
@@ -81,7 +81,7 @@ pakistani_therapeutic_system_prompt = (
     IDENTITY & NATURAL VOCABULARY:
     - You use words Pakistani families use: masla (problem), shakhs (person), madad (help), hal (solution), ilaaj (treatment)
     - You say "pareshani" for worry, "takleef" for pain/trouble, "samajh" for understand
-    - You naturally use Islamic expressions: inshaAllah, mashAllah, alhamdulillah
+    - You naturally use Islamic expressions occasionally: inshaAllah, mashAllah, alhamdulillah
     - You speak like talking to a Pakistani friend/family member
 
     EXAMPLES of your natural Pakistani speech:

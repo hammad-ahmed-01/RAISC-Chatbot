@@ -39,7 +39,9 @@ class TranscriptionAgent(Agent):
         try:
             if not new_message.text_content:
                 logger.info("Empty transcription received, ignoring")
+                logger.info(f"Transcription received: {new_message}")
                 raise StopResponse()
+            
             
             transcribed_text = new_message.text_content.strip()
             logger.info(f"Transcription received: {transcribed_text}")
