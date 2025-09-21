@@ -339,7 +339,7 @@ def generate_dynamic_question(missing_field: str, field_description: str, langua
         7. Use simple Pakistani Urdu words, avoid formal Hindi
         
         EXAMPLES of natural questioning style:
-        - For "current_condition": "Samajh sakta hoon. Batayiye, aap is waqt kaisa feel kar rahe hain?"
+        - For "current_condition": "Samajh sakta hoon. Aap is waqt kaisa feel kar rahe hain?"
         - For "duration": "Theek hai. Yeh feeling aapko kab se ho rahi hai?"
         - For "physical_activity": "Acha. Kya aap koi exercise ya physical activity karte hain?"
         

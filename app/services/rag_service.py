@@ -7,6 +7,21 @@ from app.rag_config import (
     retriever               # Shared retriever (if needed for manual retrieval)
 )
 from app.services.language_service import get_language_context_for_prompts
+from langchain_core.messages import AIMessage
+
+def _to_text(result):
+    # plain prompt chains usually return AIMessage
+    if isinstance(result, AIMessage):
+        return result.content
+    # old retrieval/stuff chains return dicts
+    if isinstance(result, dict):
+        # try common keys in older LangChain chains
+        for k in ("answer", "output_text", "result"):
+            if k in result:
+                return result[k]
+        return str(result)
+    # fallback
+    return str(result)
 
 def process_user_message(
     user_message: str, 
@@ -106,7 +121,7 @@ def process_via_english_rag_chain(
         "language_context": language_context,
     })
 
-    return result["answer"]
+    return _to_text(result)
 
 def process_via_pakistani_rag_chain(
     user_message: str,
@@ -173,7 +188,7 @@ def process_via_pakistani_rag_chain(
         "language_context": language_context,
     })
 
-    return result["answer"]
+    return _to_text(result)
 
 # Backwards compatibility function (if needed)
 def process_user_message_legacy(user_message, chat_history, user_data=None, max_summaries=3, max_doctor_summaries=2, additional_context=""):

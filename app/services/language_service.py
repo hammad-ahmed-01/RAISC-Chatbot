@@ -149,6 +149,10 @@ def get_language_context_for_prompts(language: str) -> str:
         - Mind = dimagh/zehn (NOT man)
         - Health = sehat/tandrusti (NOT swasthya)
         - Reason = waja (NOT karan)
+        - Beautiful = khoobsurat/haseen (NOT sundar)
+        - Prosperous = khushal (NOT samriddh)
+        - Best wishes = naik khuwahishat (NOT shubhkamnayein)
+        - Time = waqt (NOT samay)
         
         PAKISTANI SENTENCE PATTERNS:
         - Use "aap" (you), "main" (I), "hai" (is), "hoon" (am)
