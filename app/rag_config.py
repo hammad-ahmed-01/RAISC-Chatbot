@@ -6,27 +6,27 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_huggingface import HuggingFaceEmbeddings
-from app.config import MODEL_NAME, PERSISTENT_DIRECTORY
+from app.config import MODEL_NAME
 from dotenv import load_dotenv
 load_dotenv()
 
-# Initialize Embeddings and VectorStore (shared by both languages)
-embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
-db = Chroma(persist_directory=PERSISTENT_DIRECTORY, embedding_function=embeddings)
-retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 1})
-
 # ENGLISH LLM and RAG Chain
-english_llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=os.environ.get("GROQ_API_KEY"), temperature=0)
+english_llm = ChatGroq(
+    model="llama-3.1-8b-instant", 
+    groq_api_key=os.environ.get("GROQ_API_KEY"), 
+    temperature=0
+)
 
 # PAKISTANI LLM (separate configuration for better Pakistani responses)
 pakistani_llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="llama-3.1-8b-instant",
     groq_api_key=os.environ.get("GROQ_API_KEY"),
     temperature=0.2,  # Lower for consistent Pakistani vocabulary
     max_tokens=150,   
     top_p=0.85       
 )
 
+retriever = None
 # Contextualization prompt (shared by both languages)
 contextualize_q_system_prompt = (
     "Given a chat history and the latest user question "
@@ -81,7 +81,7 @@ pakistani_therapeutic_system_prompt = (
     IDENTITY & NATURAL VOCABULARY:
     - You use words Pakistani families use: masla (problem), shakhs (person), madad (help), hal (solution), ilaaj (treatment)
     - You say "pareshani" for worry, "takleef" for pain/trouble, "samajh" for understand
-    - You naturally use Islamic expressions: inshaAllah, mashAllah, alhamdulillah
+    - You naturally use Islamic expressions occasionally: inshaAllah, mashAllah, alhamdulillah
     - You speak like talking to a Pakistani friend/family member
 
     EXAMPLES of your natural Pakistani speech:
@@ -117,9 +117,7 @@ english_qa_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-english_history_aware_retriever = create_history_aware_retriever(english_llm, retriever, contextualize_q_prompt)
-english_question_answer_chain = create_stuff_documents_chain(english_llm, english_qa_prompt)
-english_rag_chain = create_retrieval_chain(english_history_aware_retriever, english_question_answer_chain)
+english_rag_chain = english_qa_prompt | english_llm
 
 # CREATE PAKISTANI RAG CHAIN (same structure as English but with Pakistani LLM and prompt)
 pakistani_qa_prompt = ChatPromptTemplate.from_messages(
@@ -130,9 +128,7 @@ pakistani_qa_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-pakistani_history_aware_retriever = create_history_aware_retriever(pakistani_llm, retriever, contextualize_q_prompt)
-pakistani_question_answer_chain = create_stuff_documents_chain(pakistani_llm, pakistani_qa_prompt)
-pakistani_rag_chain = create_retrieval_chain(pakistani_history_aware_retriever, pakistani_question_answer_chain)
+pakistani_rag_chain = pakistani_qa_prompt | pakistani_llm
 
 # BACKWARDS COMPATIBILITY: Keep the old variable name for existing code
 rag_chain = english_rag_chain

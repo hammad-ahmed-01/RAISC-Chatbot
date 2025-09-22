@@ -148,16 +148,20 @@ def get_language_context_for_prompts(language: str) -> str:
         - Feeling = ehsas/jazbat (NOT vyatha)
         - Mind = dimagh/zehn (NOT man)
         - Health = sehat/tandrusti (NOT swasthya)
+        - Reason = waja (NOT karan)
+        - Beautiful = khoobsurat/haseen (NOT sundar)
+        - Prosperous = khushal (NOT samriddh)
+        - Best wishes = naik khuwahishat (NOT shubhkamnayein)
+        - Time = waqt (NOT samay)
         
         PAKISTANI SENTENCE PATTERNS:
         - Use "aap" (you), "main" (I), "hai" (is), "hoon" (am)
         - Use "kya" (what), "kyun" (why), "kaise" (how), "kab" (when)
         - Use Pakistani expressions: "theek hai", "bilkul sahi", "bohat acha"
-        - Use Islamic phrases: "inshaAllah", "mashAllah", "alhamdulillah"
         
         ABSOLUTELY FORBIDDEN HINDI WORDS:
         - samasya, samadhan, vyakti, anubhav, vyavahar, upchar, chinta, sahayata, upay, vyatha
-        - swasthya, prabandhan, samvidhan, vyavastha, adhyayan, pariksha
+        - swasthya, prabandhan, samvidhan, vyavastha, adhyayan, pariksha, karan
         
         CULTURAL CONTEXT:
         - Use Pakistani social norms and Islamic references
@@ -220,15 +224,15 @@ def get_greeting_message(language: str, name: str = None) -> str:
     """
     if language == 'roman_urdu':
         if name:
-            return f"WalaikumAssalam {name} sahib/sahiba! Main yahaan aapki madad ke liye hoon. Aap kaise hain aaj?"
+            return f"WalaikumAssalam {name} sahib/sahiba! Main yahaan aapki madad ke liye hazir hoon! Ab mai aap say kuch sawal karon ga, theek hai?"
         else:
-            return "WalaikumAssalam! Main aapka mental health assistant hoon aur yahaan aapki madad ke liye hoon. Aapka naam kya hai?"
+            return "Main aapka mental health assistant hoon aur yahaan aapki madad ke liye hazir hoon! Ab mai aap say kuch sawal karon ga, theek hai?"
     else:
         if name:
-            return f"Hello {name}! I'm here to support you. How are you feeling today?"
+            return f"Hello {name}! I'm your mental health assistant. I'm here to support you through whatever you're going through! Let's start with a few questions okay?"
         else:
-            return "Hi! I'm your mental health assistant. I'm here to support you through whatever you're going through. What should I call you?"
-
+            return "Hi! I'm your mental health assistant. I'm here to support you through whatever you're going through! Let's start with a few questions okay?"
+        
 def get_information_prompts(language: str) -> dict:
     """
     Get information gathering prompts in appropriate language
