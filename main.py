@@ -14,6 +14,7 @@ app = FastAPI(title="RAISC Chatbot API")
 _default_origins = [
     "https://web-production-deb22.up.railway.app",
     "https://raisc.org",
+    "https://stage.raisc.org/",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:5500",
