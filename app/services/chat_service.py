@@ -298,18 +298,42 @@ def get_missing_information_list(user_data: dict) -> list:
     
     return missing
 
-def generate_dynamic_question(missing_field: str, field_description: str, language: str, chat_history: list) -> str:
+def generate_dynamic_question(missing_field: str, field_description: str, language: str, chat_history: list, user_data: dict = None) -> str:
     """
     Generate a contextual question for a specific missing field using LLM
-    No premade prompts - fully dynamic based on field name and description
+    Acknowledges previous user response while asking about the current field naturally
     """
     
-    # Get the user's last message for context
+    # Get the user's last message for natural acknowledgment
     user_last_message = ""
     if chat_history:
         last_messages = [msg for msg in chat_history[-3:] if msg.get("role") == "user"]
         if last_messages:
             user_last_message = last_messages[-1]["content"]
+    
+    # Get the last field that was successfully collected (for context)
+    last_collected_field = ""
+    last_collected_value = ""
+    if user_data and "information_needed" in user_data:
+        # Find the most recently collected field
+        for field, info in user_data["information_needed"].items():
+            if info.get("collected", False) and info.get("value"):
+                last_collected_field = field
+                last_collected_value = info.get("value", "")
+    
+    # Check what information has been collected so far
+    collected_info_context = ""
+    if user_data and "information_needed" in user_data:
+        collected_fields = []
+        for field, info in user_data["information_needed"].items():
+            if info.get("collected", False) and info.get("value"):
+                collected_fields.append(f"{field}: {info['value']}")
+        
+        if collected_fields:
+            if language == 'roman_urdu':
+                collected_info_context = f"Information gathered so far: {', '.join(collected_fields)}"
+            else:
+                collected_info_context = f"Information gathered so far: {', '.join(collected_fields)}"
     
     # Get language context
     language_context = get_language_context_for_prompts(language)
@@ -319,63 +343,74 @@ def generate_dynamic_question(missing_field: str, field_description: str, langua
         generation_prompt = f"""
         {language_context}
         
-        You are a warm, empathetic Pakistani mental health assistant. 
+        You are a warm, empathetic Pakistani mental health assistant having a natural conversation.
         
-        TASK: Generate a natural, conversational question to ask about: "{missing_field}"
+        CONVERSATION CONTEXT:
+        - User's last message: "{user_last_message}"
+        - Last field we collected: {last_collected_field} ({last_collected_value})
+        - Now asking about: {missing_field} ({field_description})
         
-        FIELD INFORMATION:
-        - Field name: {missing_field}
-        - What we need to know: {field_description}
+        TASK: Generate a natural, conversational transition that:
+        1. Briefly acknowledges the user's last response (1 sentence)
+        2. Smoothly transitions to asking about "{missing_field}"
+        3. Makes the conversation flow naturally
         
-        USER'S LAST MESSAGE: "{user_last_message}"
+        GUIDELINES:
+        - Keep it warm and conversational like talking to a friend
+        - Use Pakistani cultural context and Islamic expressions when appropriate
+        - Maximum 2-3 sentences total
+        - Use simple Pakistani Urdu words, avoid formal Hindi
+        - Be specific about acknowledging what they shared, then ask about the NEW field
         
-        INSTRUCTIONS:
-        1. If the user just said something, briefly acknowledge it (1 sentence)
-        2. Then ask about the missing field naturally
-        3. Make the question warm and non-threatening
-        4. Use Pakistani cultural context and Islamic expressions when appropriate
-        5. Keep it conversational - like talking to a friend
-        6. Maximum 2-3 sentences total
-        7. Use simple Pakistani Urdu words, avoid formal Hindi
+        EXAMPLES of natural transitions:
+        - If user shared about mental health history → "Shukriya yeh batane ke liye. Ab main aapki physical activity ke baare mein jaanna chahta hoon - kya aap koi exercise karte hain?"
+        - If user shared about mood → "Samajh gaya, aap ka mood kaisa hai. Ab batayiye, aap kitni der se aisa feel kar rahe hain?"
+        - If user shared about duration → "Theek hai, time period clear hai. Kya aap mujhe apni family ya personal mental health history ke baare mein bata sakte hain?"
         
-        EXAMPLES of natural questioning style:
-        - For "current_condition": "Samajh sakta hoon. Batayiye, aap is waqt kaisa feel kar rahe hain?"
-        - For "duration": "Theek hai. Yeh feeling aapko kab se ho rahi hai?"
-        - For "physical_activity": "Acha. Kya aap koi exercise ya physical activity karte hain?"
+        Current situation:
+        - User just said: "{user_last_message}"
+        - We successfully understood their answer about: {last_collected_field}
+        - Now we need to ask about: {missing_field}
         
-        Generate a natural question about "{missing_field}":
+        Generate a natural transition and question:
         """
     else:
         generation_prompt = f"""
-        You are a warm, empathetic mental health assistant.
+        You are a warm, empathetic mental health assistant having a natural conversation.
         
-        TASK: Generate a natural, conversational question to ask about: "{missing_field}"
+        CONVERSATION CONTEXT:
+        - User's last message: "{user_last_message}"
+        - Last field we collected: {last_collected_field} ({last_collected_value})
+        - Now asking about: {missing_field} ({field_description})
         
-        FIELD INFORMATION:
-        - Field name: {missing_field}
-        - What we need to know: {field_description}
+        TASK: Generate a natural, conversational transition that:
+        1. Briefly acknowledges the user's last response (1 sentence)
+        2. Smoothly transitions to asking about "{missing_field}"
+        3. Makes the conversation flow naturally
         
-        USER'S LAST MESSAGE: "{user_last_message}"
+        GUIDELINES:
+        - Keep it warm and conversational
+        - Maximum 2-3 sentences total
+        - Be professional but friendly
+        - Be specific about acknowledging what they shared, then ask about the NEW field
+        - Create a smooth conversational bridge
         
-        INSTRUCTIONS:
-        1. If the user just said something, briefly acknowledge it (1 sentence)
-        2. Then ask about the missing field naturally
-        3. Make the question warm and non-threatening
-        4. Keep it conversational and approachable
-        5. Maximum 2-3 sentences total
-        6. Be professional but friendly
+        EXAMPLES of natural transitions:
+        - If user shared about mental health history → "Thank you for sharing that with me. Now I'd like to ask about your physical activity - do you engage in any exercise?"
+        - If user shared about mood → "I understand how you're feeling. Can you tell me how long you've been experiencing this?"
+        - If user shared about duration → "That gives me a good sense of the timeline. Could you share about any mental health history, either personal or in your family?"
         
-        EXAMPLES of natural questioning style:
-        - For "current_condition": "I understand. How are you feeling right now?"
-        - For "duration": "Thank you for sharing. How long have you been experiencing this?"
-        - For "physical_activity": "I see. Do you engage in any physical activities or exercise?"
+        Current situation:
+        - User just said: "{user_last_message}"
+        - We successfully understood their answer about: {last_collected_field}
+        - Now we need to ask about: {missing_field}
         
-        Generate a natural question about "{missing_field}":
+        Generate a natural transition and question:
         """
     
     try:
         prompt = [
-            SystemMessage(content="You are a skilled mental health assistant who asks natural, empathetic questions. Generate warm, conversational questions that feel like talking to a caring friend or counselor."),
+            SystemMessage(content="You are a skilled mental health assistant who asks natural, empathetic questions. Generate warm, conversational questions that feel like talking to a caring friend or counselor. NEVER assume previous responses were about the current field being asked."),
             HumanMessage(content=generation_prompt)
         ]
         
@@ -397,8 +432,8 @@ def generate_dynamic_question(missing_field: str, field_description: str, langua
             return f"Kya aap mujhe {field_description} ke baare mein bata sakte hain?"
         else:
             return f"Could you tell me about {field_description}?"
-
-def generate_information_gathering_response(chat_history: list, missing_info: list, language: str = "english") -> str:
+        
+def generate_information_gathering_response(chat_history: list, missing_info: list, language: str = "english", user_data: dict=None) -> str:
     """Generate a warm, conversational response asking for missing information
     Uses LLM to dynamically generate questions based on REQUIRED_INFORMATION fields"""
     
@@ -429,7 +464,7 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
     field_description = field_info.get("description", next_info_to_ask)
     
     # Generate dynamic question using LLM
-    return generate_dynamic_question(next_info_to_ask, field_description, language, chat_history)
+    return generate_dynamic_question(next_info_to_ask, field_description, language, chat_history, user_data)
 
 def create_collected_information_context(user_data: dict, language: str = "english") -> str:
     """Create context string with collected information for RAG"""
@@ -739,7 +774,7 @@ async def process_chat(session_key: str, user_message: str):
         # INFORMATION GATHERING MODE - Dynamic LLM-generated questions
         print("INFORMATION GATHERING MODE: Using dynamic LLM-generated questions")
         missing_info = get_missing_information_list(user_data)
-        ai_response = generate_information_gathering_response(chat_history, missing_info, detected_language)
+        ai_response = generate_information_gathering_response(chat_history, missing_info, detected_language, user_data)
         
     else:
         # THERAPEUTIC MODE - Full RAG processing with language awareness
