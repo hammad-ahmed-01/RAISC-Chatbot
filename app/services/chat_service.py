@@ -9,14 +9,12 @@ from app.services.language_service import (
     detect_language, 
     get_greeting_message, 
     get_completion_message,
-    get_session_end_message,
-    get_error_message,
 )
 from app.services.conversation_analysis import (
     analyze_conversation_with_enhanced_system,
     generate_adaptive_question,
-    ConversationFlowManager,
-    UserPatternLearning
+    create_or_restore_managers,
+    save_managers_to_user_data,
 )
 from app.config import GROQ_API_KEY
 import json
@@ -79,8 +77,7 @@ def initialize_information_tracking(user_data: dict) -> dict:
 def extract_information_with_llm(user_message: str, missing_field: str, language: str = "english") -> dict:
     """Enhanced information extraction using LLM"""
     
-    
-    llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=GROQ_API_KEY, temperature=0)
+    llm = ChatGroq(model="openai/gpt-oss-20b", groq_api_key=GROQ_API_KEY, temperature=0)
     
     field_info = REQUIRED_INFORMATION.get(missing_field, {})
     field_description = field_info.get("description", missing_field)
@@ -176,7 +173,8 @@ def get_missing_information_list(user_data: dict) -> list:
     return missing
 
 def generate_enhanced_information_gathering_response(enhanced_analysis: dict, missing_info: list, 
-                                                  user_data: dict, language: str = "english") -> str:
+                                                  user_data: dict, language: str = "english",
+                                                  flow_manager=None) -> str:
     """Generate response using enhanced conversation analysis"""
     
     if not missing_info:
@@ -203,7 +201,6 @@ def generate_enhanced_information_gathering_response(enhanced_analysis: dict, mi
         next_field = missing_info[0]
     
     # Get attempt count for this field
-    flow_manager = user_data.get('flow_manager')
     attempt_count = 1
     if flow_manager and hasattr(flow_manager, 'question_attempts'):
         attempt_count = flow_manager.question_attempts.get(next_field, 1)
@@ -259,10 +256,8 @@ def analyze_sentiment(message: str) -> dict:
 
 def generate_conversation_summary(chat_history, session_start_index, previous_summary=None, language="english"):
     """Generate conversation summary (unchanged from original)"""
-    from langchain_groq import ChatGroq
-    from langchain.schema import SystemMessage, HumanMessage
     
-    llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=GROQ_API_KEY, temperature=0)
+    llm = ChatGroq(model="openai/gpt-oss-20b", groq_api_key=GROQ_API_KEY, temperature=0)
     
     user_messages = [msg["content"] for msg in chat_history[session_start_index:] if msg.get("role") == "user"]
     if not user_messages:
@@ -315,7 +310,7 @@ async def process_chat(session_key: str, user_message: str):
     
     # Detect language from user message
     detected_language = detect_language(user_message)
-    print(f"🔍 Detected language: {detected_language}")
+    print(f"🌍 Detected language: {detected_language}")
     
     # Fetch user data and chat history
     user_data_raw = get_user_data(session_key)
@@ -330,14 +325,11 @@ async def process_chat(session_key: str, user_message: str):
     # Store user's language preference
     user_data["preferred_language"] = detected_language
 
-    # Initialize information tracking and conversation managers
+    # Initialize information tracking
     user_data = initialize_information_tracking(user_data)
     
-    # Initialize conversation analysis managers
-    if 'flow_manager' not in user_data:
-        user_data['flow_manager'] = ConversationFlowManager()
-    if 'pattern_learner' not in user_data:
-        user_data['pattern_learner'] = UserPatternLearning()
+    # 🔧 FIX: Use helper function to create/restore managers properly
+    flow_manager, pattern_learner = create_or_restore_managers(user_data)
 
     # Initialize other fields
     user_data["doctor_summary"] = doctor_summary
@@ -361,6 +353,8 @@ async def process_chat(session_key: str, user_message: str):
             user_data["past_summaries"].append(summary_data)
             user_data["session_start_index"] = len(chat_history)
             
+            # 🔧 FIX: Save managers before storing user data
+            user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
             store_user_data(session_key, user_data)
             print(f"[AUTO-SUMMARY] Generated due to inactivity: {summary_data['summary'][:100]}...")
 
@@ -376,6 +370,9 @@ async def process_chat(session_key: str, user_message: str):
         session_key=session_key,
         language=detected_language
     )
+    
+    # 🔧 FIX: Re-create managers after analysis (since analyze_conversation_with_enhanced_system saves them)
+    flow_manager, pattern_learner = create_or_restore_managers(user_data)
     
     print(f"🧠 Enhanced Analysis: {enhanced_analysis['analysis']['engagement_level']} | {enhanced_analysis['next_action']['strategy']}")
 
@@ -393,6 +390,9 @@ async def process_chat(session_key: str, user_message: str):
 
     # Update last interaction time
     user_data["last_interaction"] = current_time.isoformat()
+    
+    # 🔧 FIX: Save managers before storing (early save)
+    user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
     store_user_data(session_key, user_data)
 
     # Handle session ending requests
@@ -420,6 +420,9 @@ async def process_chat(session_key: str, user_message: str):
         
         chat_history.append({"role": "assistant", "content": goodbye_msg})
         save_chat_history(session_key, chat_history)
+        
+        # 🔧 FIX: Save managers before final store
+        user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
         store_user_data(session_key, user_data)
         
         print(f"[SESSION END] Summary stored: {summary_data['summary'][:100]}...")
@@ -431,6 +434,9 @@ async def process_chat(session_key: str, user_message: str):
         user_data["session_start_index"] = 1
         chat_history.append({"role": "assistant", "content": greeting})
         save_chat_history(session_key, chat_history)
+        
+        # 🔧 FIX: Save managers before storing
+        user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
         store_user_data(session_key, user_data)
         return {"response": greeting}
 
@@ -461,27 +467,12 @@ async def process_chat(session_key: str, user_message: str):
         )
         
     elif not user_data["questionnaire_completed"]:
-        print("📝 INFORMATION GATHERING MODE: Using enhanced adaptive questioning")
+        print("📋 INFORMATION GATHERING MODE: Using enhanced adaptive questioning")
         
         missing_info = get_missing_information_list(user_data)
         ai_response = generate_enhanced_information_gathering_response(
-            enhanced_analysis, missing_info, user_data, detected_language
+            enhanced_analysis, missing_info, user_data, detected_language, flow_manager
         )
-        
-        # If enhanced analysis says to switch to RAG, do it
-        if ai_response is None:
-            print("🔄 Enhanced analysis recommended switching to RAG during info gathering")
-            user_data["questionnaire_completed"] = True
-            user_data["completion_reason"] = "enhanced_analysis_recommendation"
-            
-            collected_info_context = create_collected_information_context(user_data, detected_language)
-            ai_response = process_user_message(
-                user_message, 
-                chat_history, 
-                user_data,
-                additional_context=collected_info_context,
-                language=detected_language
-            )
         
     else:
         print("🎭 THERAPEUTIC MODE: Using full RAG processing")
@@ -510,6 +501,9 @@ async def process_chat(session_key: str, user_message: str):
     # Save final state
     chat_history.append({"role": "assistant", "content": ai_response})
     save_chat_history(session_key, chat_history)
+    
+    # 🔧 FIX: Save managers before final store
+    user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
     store_user_data(session_key, user_data)
     
     return {"response": ai_response}

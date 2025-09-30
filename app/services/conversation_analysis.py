@@ -11,7 +11,7 @@ from app.config import GROQ_API_KEY
 
 # Initialize LLM for analysis
 analysis_llm = ChatGroq(
-    model="llama-3.3-70b-versatile", 
+    model="openai/gpt-oss-20b", 
     groq_api_key=GROQ_API_KEY, 
     temperature=0.1,
     max_tokens=500

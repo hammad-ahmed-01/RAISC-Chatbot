@@ -12,14 +12,14 @@ load_dotenv()
 
 # ENGLISH LLM and RAG Chain
 english_llm = ChatGroq(
-    model="llama-3.1-8b-instant", 
+    model="openai/gpt-oss-20b", 
     groq_api_key=os.environ.get("GROQ_API_KEY"), 
     temperature=0
 )
 
 # PAKISTANI LLM (separate configuration for better Pakistani responses)
 pakistani_llm = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="openai/gpt-oss-20b",
     groq_api_key=os.environ.get("GROQ_API_KEY"),
     temperature=0.2,  # Lower for consistent Pakistani vocabulary
     max_tokens=150,   

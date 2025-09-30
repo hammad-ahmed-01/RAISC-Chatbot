@@ -4,7 +4,7 @@ from langchain.schema import SystemMessage, HumanMessage
 from app.config import GROQ_API_KEY
 import re
 
-llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=GROQ_API_KEY, temperature=0)
+llm = ChatGroq(model="openai/gpt-oss-20b", groq_api_key=GROQ_API_KEY, temperature=0)
 
 def detect_language(message: str) -> str:
     """
@@ -177,46 +177,7 @@ def get_language_context_for_prompts(language: str) -> str:
         Avoid overly complex vocabulary and keep sentences conversational.
         """
 
-def verify_pakistani_urdu_response(response: str) -> str:
-    """
-    Post-process response to catch and replace any Hindi words that slipped through
-    """
-    # Hindi to Pakistani Urdu replacements
-    replacements = {
-        'samasya': 'masla',
-        'samadhan': 'hal', 
-        'vyakti': 'shakhs',
-        'anubhav': 'tajurba',
-        'vyavahar': 'rawayya',
-        'upchar': 'ilaaj',
-        'chinta': 'pareshani',
-        'sahayata': 'madad',
-        'upay': 'tarika',
-        'vyatha': 'takleef',
-        'swasthya': 'sehat',
-        'prabandhan': 'intizam',
-        'samvidhan': 'qanoon',
-        'vyavastha': 'nizam',
-        'adhyayan': 'mutala',
-        'pariksha': 'imtihan'
-    }
-    
-    # Check and replace
-    modified = False
-    original_response = response
-    
-    for hindi_word, urdu_word in replacements.items():
-        if hindi_word in response.lower():
-            # Replace with case preservation
-            response = re.sub(hindi_word, urdu_word, response, flags=re.IGNORECASE)
-            modified = True
-            print(f"⚠️ HINDI WORD REPLACED: '{hindi_word}' → '{urdu_word}'")
-    
-    if modified:
-        print(f"Original: {original_response}")
-        print(f"Corrected: {response}")
-    
-    return response
+
 
 def get_greeting_message(language: str, name: str = None) -> str:
     """
@@ -232,29 +193,6 @@ def get_greeting_message(language: str, name: str = None) -> str:
             return f"Hello {name}! I'm your mental health assistant. I'm here to support you through whatever you're going through! Let's start with a few questions okay?"
         else:
             return "Hi! I'm your mental health assistant. I'm here to support you through whatever you're going through! Let's start with a few questions okay?"
-        
-def get_information_prompts(language: str) -> dict:
-    """
-    Get information gathering prompts in appropriate language
-    """
-    if language == 'roman_urdu':
-        return {
-            'current_condition': "Aap is waqt kaisa feel kar rahe hain? Aapki tabiyat kaisi hai?",
-            'duration': "Aap ko kab say aesa mehsoos horha hai?",
-            'mental_health_history': "Aap ko pehlay kabhi koi zehni masla feel hua hai?",
-            # 'current_condition': "Aap is waqt kaisa feel kar rahe hain? Aapki tabiyat kaisi hai?",
-            'physical_activity': "Kia aap physically active hain? Koi exercise ya activity krtay hain?",
-            'suicidal_thoughts': "Kia aap ko kabhi suicide ka khayal aya hai?"
-        }
-    else:
-        return {
-            'current_condition': "How are you feeling right now? What's your current emotional state?",
-            'duration': "How long have you been feeling this way?",
-            'mental_health_history': "Do you have any history of mental health issues?",
-            # 'current_condition': "How are you feeling right now? What's your current emotional state?",
-            'physical_activity': "Are you physically active? Do you do exercise of any kind?",
-            'suicidal_thoughts': "Are you experiencing, or have experienced any suicidal thoughts in the past?"
-        }
         
 def get_completion_message(language: str, name: str = None) -> str:
     """
@@ -288,21 +226,3 @@ def get_risk_intervention_message(language: str) -> str:
             "Please remember, I'm not a substitute for professional advice. "
             "Would you like some resources or help finding support?"
         )
-
-def get_session_end_message(language: str) -> str:
-    """
-    Get session ending message
-    """
-    if language == 'roman_urdu':
-        return "Yeh aapki session ka summary hai:"
-    else:
-        return "Here is your session summary:"
-
-def get_error_message(language: str) -> str:
-    """
-    Get error message
-    """
-    if language == 'roman_urdu':
-        return "Maaf kijiye, mujhe kuch technical problem ho rahi hai. Thoda wait kariye aur phir try kijiye."
-    else:
-        return "I'm sorry, I'm experiencing some technical difficulties. Please try again in a moment."
