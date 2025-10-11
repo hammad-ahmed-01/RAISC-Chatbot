@@ -136,8 +136,8 @@ class ConversationFlowManager:
     def _handle_distress(self) -> dict:
         return {
             'strategy': 'SUPPORTIVE_PRIORITY',
-            'action': 'SWITCH_TO_RAG',
-            'context': 'The user seems distressed. Prioritize emotional support.',
+            'action': 'GENTLE_QUESTIONING',
+            'context': 'The user seems distressed. Prioritize emotional support but continue gently.',
             'force_complete_questionnaire': False,
             'reasoning': "Emotional distress detected"
         }
@@ -167,7 +167,7 @@ class ConversationFlowManager:
             return {
                 'strategy': 'GENTLE_APPROACH',
                 'action': 'GENTLE_QUESTIONING',
-                'context': 'The user is somewhat engaged but I should be gentle.',
+                'context': 'The user is somewhat engaged but I should be gentle, I should not keep asking "if you dont mind sharing.", I will vary my responses to have the user feel more comfortable. I wont keep saying that its optional, I will just ask the question in a gentle way.',
                 'force_complete_questionnaire': False,
                 'reasoning': "Moderate engagement, proceeding carefully"
             }
@@ -438,7 +438,7 @@ def generate_adaptive_question(missing_field: str, field_description: str,
     if engagement in ['resistant', 'low'] or attempt_count > 2:
         style = "optional_gentle"
     elif readiness == "ready" and engagement == "high_positive":
-        style = "direct_warm"
+        style = "conversational_natural"  # Changed from "direct_warm"
     elif emotional_state == "distressed":
         style = "supportive_gentle"
     else:
@@ -457,24 +457,37 @@ User state:
 - Attempt #{attempt_count}
 - Field: {field_description}
 
-Styles:
-- optional_gentle: Make it clear the question is optional
-- direct_warm: Direct but supportive
-- casual_indirect: Natural, conversational
-- supportive_gentle: Support first, then gently ask
+Questioning styles:
+- optional_gentle: Make it clear the question is optional, very gentle
+- conversational_natural: Natural flowing conversation, not an interview question
+- casual_indirect: Weave into conversation organically
+- supportive_gentle: Acknowledge their sharing first, then gently ask
 
-Rules:
-1. If attempt > 1, acknowledge this isn't first time
-2. If resistant, give clear permission to skip
-3. Keep SHORT and non-threatening
-4. Never sound demanding
+CRITICAL RULES - Make it sound HUMAN:
+1. DON'T use phrases like "I'd like to", "I'm wondering", "Could you tell me"
+2. DON'T make it sound like a clinical interview
+3. DO use natural conversation flow
+4. DO acknowledge what they just said before asking
+5. Keep it SHORT (one sentence when possible)
+6. Vary your phrasing - never repeat the same question structure
 
-Generate ONLY the question:
+EXAMPLES of NATURAL questions:
+- "How long has this been going on?" (not "Could you share how long...")
+- "What's your sleep been like?" (not "I'd like to understand your sleep patterns")
+- "Do you exercise at all?" (not "Could you tell me about your physical activity levels")
+- "Any history of mental health stuff in your family?" (not "I'm wondering if...")
+
+EXAMPLES of ROBOTIC questions (AVOID):
+- "If you'd like to share, how long have you been feeling like this?"
+- "I'd like to understand more about your current condition."
+- "Could you tell me about your mental health history?"
+
+Generate ONLY the question (no explanation):
 """
     
     try:
         response = analysis_llm([
-            SystemMessage(content=f"Generate adaptive therapeutic questions in {language}. Be sensitive to user state."),
+            SystemMessage(content=f"Generate natural, conversational questions in {language}. Sound like a human friend, not a robot therapist."),
             HumanMessage(content=generation_prompt)
         ])
         
@@ -483,11 +496,25 @@ Generate ONLY the question:
         
     except Exception as e:
         print(f"Question generation failed: {e}")
-        # Simple fallback
+        # Simple, natural fallbacks
         if language == 'roman_urdu':
-            return f"Agar aap comfortable hain toh {field_description} ke baare mein bata sakte hain?"
+            fallbacks = {
+                'current_condition': 'Aap kaisa feel kar rahe hain abhi?',
+                'duration': 'Yeh kab se ho raha hai?',
+                'mental_health_history': 'Aapke family mein kisi ko mental health issues hain?',
+                'physical_activity': 'Koi exercise waghaira karte hain?',
+                'suicidal_thoughts': 'Kabhi suicide ke thoughts aye hain?'
+            }
         else:
-            return f"If you're comfortable, could you tell me about {field_description}?"
+            fallbacks = {
+                'current_condition': "How are you feeling right now?",
+                'duration': "How long has this been going on?",
+                'mental_health_history': "Any mental health stuff in your family history?",
+                'physical_activity': "Do you exercise at all?",
+                'suicidal_thoughts': "Have you had any thoughts of suicide?"
+            }
+        
+        return fallbacks.get(missing_field, f"Tell me about {field_description}?")
 
 def get_next_missing_field(user_data: dict) -> str:
     """Get the next field that needs to be collected"""
@@ -522,7 +549,6 @@ def analyze_conversation_with_enhanced_system(message: str, chat_history: list,
     user_approach = pattern_learner.get_personalized_approach(session_key)
     
     # Determine next action
-
     missing_field = get_next_missing_field(user_data)
     next_action = flow_manager.determine_next_action(analysis, user_data, chat_history, missing_field)
     

@@ -328,7 +328,9 @@ async def process_chat(session_key: str, user_message: str):
     # Initialize information tracking
     user_data = initialize_information_tracking(user_data)
     
-    # 🔧 FIX: Use helper function to create/restore managers properly
+    if len(chat_history) == 0:
+        chat_history.append({"role": "user", "content": user_message})
+        save_chat_history(session_key, chat_history)
     flow_manager, pattern_learner = create_or_restore_managers(user_data)
 
     # Initialize other fields
@@ -359,9 +361,19 @@ async def process_chat(session_key: str, user_message: str):
             print(f"[AUTO-SUMMARY] Generated due to inactivity: {summary_data['summary'][:100]}...")
 
     # Add user message to chat history with legacy sentiment for compatibility
-    legacy_sentiment = analyze_sentiment(user_message)
-    chat_history.append({"role": "user", "content": user_message, "sentiment": legacy_sentiment})
-
+    # legacy_sentiment = analyze_sentiment(user_message)
+    # chat_history.append({"role": "user", "content": user_message, "sentiment": legacy_sentiment})
+    # Handle first-time users
+    if len(chat_history) == 1:
+        greeting = get_greeting_message(detected_language, user_message)
+        user_data["session_start_index"] = 1
+        chat_history.append({"role": "assistant", "content": greeting})
+        save_chat_history(session_key, chat_history)
+        
+        # 🔧 FIX: Save managers before storing
+        user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
+        store_user_data(session_key, user_data)
+        return {"response": greeting}
     # 🚀 ENHANCED CONVERSATION ANALYSIS
     enhanced_analysis = analyze_conversation_with_enhanced_system(
         message=user_message,
@@ -428,17 +440,7 @@ async def process_chat(session_key: str, user_message: str):
         print(f"[SESSION END] Summary stored: {summary_data['summary'][:100]}...")
         return {"response": goodbye_msg}
 
-    # Handle first-time users
-    if len(chat_history) == 1:
-        greeting = get_greeting_message(detected_language)
-        user_data["session_start_index"] = 1
-        chat_history.append({"role": "assistant", "content": greeting})
-        save_chat_history(session_key, chat_history)
-        
-        # 🔧 FIX: Save managers before storing
-        user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
-        store_user_data(session_key, user_data)
-        return {"response": greeting}
+    
 
     # 🎯 DECISION LOGIC: Information Gathering vs Therapeutic Mode
     

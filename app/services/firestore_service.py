@@ -1,6 +1,7 @@
 from app.utils import get_firestore_client
 from app.config import COLLECTION_NAME
-
+from dotenv import load_dotenv
+load_dotenv()
 client = get_firestore_client()
 
 def get_chat_history(session_key: str):
