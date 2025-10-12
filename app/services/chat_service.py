@@ -21,7 +21,7 @@ import json
 from langchain_groq import ChatGroq
 from langchain.schema import SystemMessage, HumanMessage
     
-# Your existing REQUIRED_INFORMATION (unchanged)
+# Define required information fields with descriptions
 REQUIRED_INFORMATION = {
     "current_condition": {
         "collected": False, 
@@ -55,7 +55,7 @@ REQUIRED_INFORMATION = {
     }
 }
 
-# Inactivity threshold (unchanged)
+# Inactivity threshold for auto-summary (e.g., 1 minute)
 INACTIVITY_THRESHOLD = timedelta(minutes=1)
 
 def initialize_information_tracking(user_data: dict) -> dict:
@@ -77,7 +77,7 @@ def initialize_information_tracking(user_data: dict) -> dict:
 def extract_information_with_llm(user_message: str, missing_field: str, language: str = "english") -> dict:
     """Enhanced information extraction using LLM"""
     
-    llm = ChatGroq(model="openai/gpt-oss-20b", groq_api_key=GROQ_API_KEY, temperature=0)
+    llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=GROQ_API_KEY, temperature=0)
     
     field_info = REQUIRED_INFORMATION.get(missing_field, {})
     field_description = field_info.get("description", missing_field)
@@ -173,7 +173,7 @@ def get_missing_information_list(user_data: dict) -> list:
     return missing
 
 def generate_enhanced_information_gathering_response(enhanced_analysis: dict, missing_info: list, 
-                                                  user_data: dict, language: str = "english",
+                                                  user_data: dict, chat_history: list, language: str = "english",
                                                   flow_manager=None) -> str:
     """Generate response using enhanced conversation analysis"""
     
@@ -216,6 +216,7 @@ def generate_enhanced_information_gathering_response(enhanced_analysis: dict, mi
         analysis=analysis,
         attempt_count=attempt_count,
         language=language,
+        chat_history=chat_history,
         user_approach=user_approach
     )
     
@@ -473,7 +474,7 @@ async def process_chat(session_key: str, user_message: str):
         
         missing_info = get_missing_information_list(user_data)
         ai_response = generate_enhanced_information_gathering_response(
-            enhanced_analysis, missing_info, user_data, detected_language, flow_manager
+            enhanced_analysis, missing_info, user_data, chat_history, detected_language, flow_manager
         )
         
     else:

@@ -11,7 +11,7 @@ from app.config import GROQ_API_KEY
 
 # Initialize LLM for analysis
 analysis_llm = ChatGroq(
-    model="openai/gpt-oss-20b", 
+    model="llama-3.3-70b-versatile", 
     groq_api_key=GROQ_API_KEY, 
     temperature=0.1,
     max_tokens=500
@@ -427,7 +427,7 @@ def _get_fallback_analysis(message: str) -> dict:
 
 def generate_adaptive_question(missing_field: str, field_description: str, 
                              analysis: dict, attempt_count: int, 
-                             language: str, user_approach: dict = None) -> str:
+                             language: str,chat_history: list,  user_approach: dict = None) -> str:
     """Generate adaptive questions based on user state"""
     
     engagement = analysis.get('engagement_level', 'moderate')
@@ -447,6 +447,7 @@ def generate_adaptive_question(missing_field: str, field_description: str,
     if user_approach and user_approach.get('approach') == 'extra_gentle':
         style = "optional_gentle"
     
+    # Using the last 3 messages to provide recent context without overwhelming the prompt
     generation_prompt = f"""
 Generate a {style} question about {missing_field} in {language}.
 
@@ -456,20 +457,22 @@ User state:
 - Emotional state: {emotional_state}
 - Attempt #{attempt_count}
 - Field: {field_description}
-
+- Chat history: {chat_history if chat_history else 'None'}
 Questioning styles:
-- optional_gentle: Make it clear the question is optional, very gentle
-- conversational_natural: Natural flowing conversation, not an interview question
+- optional_gentle: Make it clear they can skip if uncomfortable but keep the conversation flowing.
+- conversational_natural: Natural flowing conversation, not an interview question.
 - casual_indirect: Weave into conversation organically
 - supportive_gentle: Acknowledge their sharing first, then gently ask
 
 CRITICAL RULES - Make it sound HUMAN:
-1. DON'T use phrases like "I'd like to", "I'm wondering", "Could you tell me"
+1. Don'T repeat the same phrases in every question as given in chat_history.
 2. DON'T make it sound like a clinical interview
 3. DO use natural conversation flow
 4. DO acknowledge what they just said before asking
 5. Keep it SHORT (one sentence when possible)
 6. Vary your phrasing - never repeat the same question structure
+7. Given chat_history, only give response to {chat_history[-1]['role']}. 
+8. If chat_history is empty, just ask the question naturally.
 
 EXAMPLES of NATURAL questions:
 - "How long has this been going on?" (not "Could you share how long...")
