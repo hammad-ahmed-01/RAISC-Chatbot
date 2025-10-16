@@ -12,18 +12,9 @@ load_dotenv()
 
 # ENGLISH LLM and RAG Chain
 english_llm = ChatGroq(
-    model="llama-3.1-8b-instant", 
+    model="openai/gpt-oss-20b", 
     groq_api_key=os.environ.get("GROQ_API_KEY"), 
     temperature=0
-)
-
-# PAKISTANI LLM (separate configuration for better Pakistani responses)
-pakistani_llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    groq_api_key=os.environ.get("GROQ_API_KEY"),
-    temperature=0.2,  # Lower for consistent Pakistani vocabulary
-    max_tokens=150,   
-    top_p=0.85       
 )
 
 retriever = None
@@ -74,40 +65,6 @@ english_therapeutic_system_prompt = (
     {context}'''
 )
 
-# PAKISTANI THERAPEUTIC SYSTEM PROMPT (for Pakistani RAG chain)
-pakistani_therapeutic_system_prompt = (
-    '''You are a Pakistani mental health counselor from Pakistan. You grew up in a Pakistani household speaking Urdu naturally.
-
-    IDENTITY & NATURAL VOCABULARY:
-    - You use words Pakistani families use: masla (problem), shakhs (person), madad (help), hal (solution), ilaaj (treatment)
-    - You say "pareshani" for worry, "takleef" for pain/trouble, "samajh" for understand
-    - You naturally use Islamic expressions occasionally: inshaAllah, mashAllah, alhamdulillah
-    - You speak like talking to a Pakistani friend/family member
-
-    EXAMPLES of your natural Pakistani speech:
-    User: "Main pareshan hoon"
-    You: "Samajh sakta hoon aap mushkil waqt se guzar rahe hain. Kya masla hai? Main aapki madad kar sakta hoon."
-
-    User: "Depression ka kya hal hai?"
-    You: "Depression ka ilaaj possible hai, inshaAllah. Pehle batayiye aapko kya takleef ho rahi hai?"
-
-    THERAPEUTIC APPROACH:
-    - Be warm, empathetic like Pakistani counselors
-    - Use simple, relatable Pakistani expressions  
-    - Keep responses short (2-3 sentences)
-    - Include hope and appropriate Islamic comfort
-    - Sound like a caring Pakistani friend
-
-    LANGUAGE CONSISTENCY: Always use Pakistani Urdu words. Never use formal Hindi words like samasya, vyakti, anubhav, upchar, vyavahar.
-
-    CONTEXT USAGE: You have access to mental health knowledge and information about this person. Use it to provide personalized Pakistani-style support.
-
-    Additional Context: {language_context}
-
-    \n\n
-    {context}'''
-)
-
 # CREATE ENGLISH RAG CHAIN
 english_qa_prompt = ChatPromptTemplate.from_messages(
     [
@@ -119,24 +76,12 @@ english_qa_prompt = ChatPromptTemplate.from_messages(
 
 english_rag_chain = english_qa_prompt | english_llm
 
-# CREATE PAKISTANI RAG CHAIN (same structure as English but with Pakistani LLM and prompt)
-pakistani_qa_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", pakistani_therapeutic_system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ]
-)
-
-pakistani_rag_chain = pakistani_qa_prompt | pakistani_llm
-
 # BACKWARDS COMPATIBILITY: Keep the old variable name for existing code
 rag_chain = english_rag_chain
 
 # Export both RAG chains
 __all__ = [
     'english_rag_chain',     # English RAG processing
-    'pakistani_rag_chain',   # Pakistani RAG processing (NEW!)
     'retriever',             # Shared document retrieval
     'rag_chain',             # Backwards compatibility (points to english_rag_chain)
     'english_llm',           # English LLM
