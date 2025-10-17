@@ -81,7 +81,7 @@ def extract_information_with_llm(user_message: str, missing_field: str, chat_his
     
     field_info = REQUIRED_INFORMATION.get(missing_field, {})
     field_description = field_info.get("description", missing_field)
-    
+    print("Conversation history for extraction:", chat_history[-6:])  # Show last 6 messages for context
     extraction_prompt = f"""
 You are extracting information from a user's message for mental health assessment.
 
@@ -89,7 +89,7 @@ User message: "{user_message}"
 Information to extract: {missing_field}
 Field description: {field_description}
 Language: {language}
-Question asked by assistant: {chat_history[-1] if chat_history else ""}
+Question asked by assistant: {chat_history[-2] if chat_history else ""}
 INSTRUCTIONS:
 1. ONLY extract information that is clearly and explicitly mentioned
 2. Accept both positive and negative responses as valid information
@@ -97,7 +97,7 @@ INSTRUCTIONS:
 4. If extracting from Roman Urdu, translate the response to English
 5. DO NOT use placeholder values or make assumptions
 6. Return empty JSON {{}} if no clear information is found
-
+7. ALWAYS return valid JSON format
 EXAMPLES of valid extractions:
 - "No, I don't have depression" → {{"mental_health_history": "no history of depression"}}
 - "I've been feeling anxious for 2 weeks" → {{"duration": "2 weeks"}}
@@ -360,8 +360,8 @@ async def process_chat(session_key: str, user_message: str):
             user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
             store_user_data(session_key, user_data)
             print(f"[AUTO-SUMMARY] Generated due to inactivity: {summary_data['summary'][:100]}...")
-
-    chat_history.append({"role": "user", "content": user_message})
+    
+    
     # Handle first-time users
     if len(chat_history) == 1:
         greeting = get_greeting_message(detected_language, user_message)
@@ -373,6 +373,8 @@ async def process_chat(session_key: str, user_message: str):
         user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
         store_user_data(session_key, user_data)
         return {"response": greeting}
+    # elif len(chat_history) > 1:
+        # chat_history.append({"role": "user", "content": user_message})
     # 🚀 ENHANCED CONVERSATION ANALYSIS
     enhanced_analysis = analyze_conversation_with_enhanced_system(
         message=user_message,

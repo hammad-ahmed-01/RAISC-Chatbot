@@ -195,6 +195,7 @@ def get_greeting_message(language: str, user_message: str, name: str = None) -> 
        
             
     else:
+        
         response=llm.invoke([
                 SystemMessage(content="You are an expert English-speaking mental health assistant. You excel at generating warm, culturally appropriate greetings in English."),
                 HumanMessage(content=f"The user said: '{user_message}'. Generate a warm, friendly greeting in English that acknowledges their message and makes them feel comfortable. Use respectful language and a supportive tone. If the user's message contains any Urdu words, do not include them in your greeting. If the user's message is neutral or doesn't provide much context, use a general warm greeting. If the user's message is very short or just a greeting, respond with a friendly greeting back. If the user's message contains any emotional cues (like feeling sad, anxious, happy), acknowledge that in your greeting. If the user's message is very formal, keep your greeting slightly more formal but still warm and friendly. If the user's message is informal or casual, use a more casual tone in your greeting. If the user's message contains slang or colloquial terms, you can use similar casual language in your greeting. Make sure to include an introduction of yourself as a mental health assistant and express your willingness to help.\n\nIf the user's name is '{name}', include it in the greeting to make it more personal.")
