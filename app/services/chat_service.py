@@ -74,7 +74,7 @@ def initialize_information_tracking(user_data: dict) -> dict:
     
     return user_data
 
-def extract_information_with_llm(user_message: str, missing_field: str, language: str = "english") -> dict:
+def extract_information_with_llm(user_message: str, missing_field: str, chat_history: list, language: str = "english") -> dict:
     """Enhanced information extraction using LLM"""
     
     llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=GROQ_API_KEY, temperature=0)
@@ -89,7 +89,7 @@ User message: "{user_message}"
 Information to extract: {missing_field}
 Field description: {field_description}
 Language: {language}
-
+Question asked by assistant: {chat_history[-1] if chat_history else ""}
 INSTRUCTIONS:
 1. ONLY extract information that is clearly and explicitly mentioned
 2. Accept both positive and negative responses as valid information
@@ -361,9 +361,7 @@ async def process_chat(session_key: str, user_message: str):
             store_user_data(session_key, user_data)
             print(f"[AUTO-SUMMARY] Generated due to inactivity: {summary_data['summary'][:100]}...")
 
-    # Add user message to chat history with legacy sentiment for compatibility
-    # legacy_sentiment = analyze_sentiment(user_message)
-    # chat_history.append({"role": "user", "content": user_message, "sentiment": legacy_sentiment})
+    chat_history.append({"role": "user", "content": user_message})
     # Handle first-time users
     if len(chat_history) == 1:
         greeting = get_greeting_message(detected_language, user_message)
@@ -393,7 +391,7 @@ async def process_chat(session_key: str, user_message: str):
     missing_info = get_missing_information_list(user_data)
     if missing_info:
         next_field = missing_info[0]  # Get next field to ask about
-        extracted_info = extract_information_with_llm(user_message, next_field, detected_language)
+        extracted_info = extract_information_with_llm(user_message, next_field, chat_history, detected_language)
         user_data = update_collected_information(user_data, extracted_info)
 
     # Update questionnaire completion status
