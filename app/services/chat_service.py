@@ -373,8 +373,8 @@ async def process_chat(session_key: str, user_message: str):
         user_data = save_managers_to_user_data(user_data, flow_manager, pattern_learner)
         store_user_data(session_key, user_data)
         return {"response": greeting}
-    # elif len(chat_history) > 1:
-        # chat_history.append({"role": "user", "content": user_message})
+    elif len(chat_history) > 1:
+        chat_history.append({"role": "user", "content": user_message})
     # 🚀 ENHANCED CONVERSATION ANALYSIS
     enhanced_analysis = analyze_conversation_with_enhanced_system(
         message=user_message,
