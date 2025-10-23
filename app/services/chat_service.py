@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from app.services.firestore_service import get_chat_history, save_chat_history
 from app.services.user_service import get_user_data, store_user_data, get_doctor_summary
 from app.services.rag_service import process_user_message
+from app.services.questionaire_service import load_required_information
 from app.services.language_service import (
     detect_language, 
     get_greeting_message, 
@@ -21,44 +22,11 @@ import json
 from langchain_groq import ChatGroq
 from langchain.schema import SystemMessage, HumanMessage
     
-# Define required information fields with descriptions
-REQUIRED_INFORMATION = {
-    "current_condition": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "how the user is feeling currently"
-    },
-    "duration": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "how long has the user been feeling like this"
-    },
-    "mental_health_history": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "user's mental health history or family history"
-    },
-    "physical_activity": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "Does the user perform any sort of physical exercise"
-    },
-    "suicidal_thoughts": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "Whether the user has experienced suicidal thoughts"
-    }
-}
 
 # Inactivity threshold for auto-summary (e.g., 1 minute)
 INACTIVITY_THRESHOLD = timedelta(minutes=1)
 
-def initialize_information_tracking(user_data: dict) -> dict:
+def initialize_information_tracking(user_data: dict, REQUIRED_INFORMATION: dict) -> dict:
     """Initialize or update the information tracking structure (unchanged)"""
     if not isinstance(user_data, dict):
         user_data = {}
@@ -74,7 +42,7 @@ def initialize_information_tracking(user_data: dict) -> dict:
     
     return user_data
 
-def extract_information_with_llm(user_message: str, missing_field: str, chat_history: list, language: str = "english") -> dict:
+def extract_information_with_llm(user_message: str, missing_field: str, chat_history: list, REQUIRED_INFORMATION: dict, language: str = "english") -> dict:
     """Enhanced information extraction using LLM"""
     
     llm = ChatGroq(model="openai/gpt-oss-120b", groq_api_key=GROQ_API_KEY, temperature=0)
@@ -147,7 +115,7 @@ def update_collected_information(user_data: dict, extracted_info: dict) -> dict:
     
     return user_data
 
-def is_questionnaire_complete(user_data: dict) -> bool:
+def is_questionnaire_complete(user_data: dict,REQUIRED_INFORMATION: dict) -> bool:
     """Check if all required information has been collected (unchanged)"""
     info_needed = user_data.get("information_needed", {})
     
@@ -155,11 +123,12 @@ def is_questionnaire_complete(user_data: dict) -> bool:
         if info.get("required", True):
             user_field_info = info_needed.get(key, {})
             if not user_field_info.get("collected", False):
+                print(f"Still missing: {key}")
                 return False
-    
+    print("Questionnaire complete!")
     return True
 
-def get_missing_information_list(user_data: dict) -> list:
+def get_missing_information_list(user_data: dict,REQUIRED_INFORMATION: dict) -> list:
     """Get list of missing information fields (unchanged)"""
     info_needed = user_data.get("information_needed", {})
     missing = []
@@ -173,7 +142,7 @@ def get_missing_information_list(user_data: dict) -> list:
     return missing
 
 def generate_enhanced_information_gathering_response(enhanced_analysis: dict, missing_info: list, 
-                                                  user_data: dict, chat_history: list, language: str = "english",
+                                                  user_data: dict, chat_history: list, REQUIRED_INFORMATION: dict,language: str = "english",
                                                   flow_manager=None) -> str:
     """Generate response using enhanced conversation analysis"""
     
@@ -308,7 +277,8 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
 
 async def process_chat(session_key: str, user_message: str):
     """Enhanced chat processing using the new conversation analysis system"""
-    
+    # Define required information fields with descriptions
+    REQUIRED_INFORMATION = load_required_information(session_key=session_key)
     # Detect language from user message
     detected_language = detect_language(user_message)
     print(f"🌍 Detected language: {detected_language}")
@@ -327,7 +297,7 @@ async def process_chat(session_key: str, user_message: str):
     user_data["preferred_language"] = detected_language
 
     # Initialize information tracking
-    user_data = initialize_information_tracking(user_data)
+    user_data = initialize_information_tracking(user_data, REQUIRED_INFORMATION)
     
     if len(chat_history) == 0:
         chat_history.append({"role": "user", "content": user_message})
@@ -390,15 +360,15 @@ async def process_chat(session_key: str, user_message: str):
     print(f"🧠 Enhanced Analysis: {enhanced_analysis['analysis']['engagement_level']} | {enhanced_analysis['next_action']['strategy']}")
 
     # Extract information with enhanced LLM extraction
-    missing_info = get_missing_information_list(user_data)
+    missing_info = get_missing_information_list(user_data, REQUIRED_INFORMATION)
     if missing_info:
         next_field = missing_info[0]  # Get next field to ask about
-        extracted_info = extract_information_with_llm(user_message, next_field, chat_history, detected_language)
+        extracted_info = extract_information_with_llm(user_message, next_field, chat_history,REQUIRED_INFORMATION, detected_language)
         user_data = update_collected_information(user_data, extracted_info)
 
     # Update questionnaire completion status
     was_completed_before = user_data.get("questionnaire_completed", False)
-    user_data["questionnaire_completed"] = is_questionnaire_complete(user_data)
+    user_data["questionnaire_completed"] = is_questionnaire_complete(user_data, REQUIRED_INFORMATION)
     just_completed = not was_completed_before and user_data["questionnaire_completed"]
 
     # Update last interaction time
@@ -472,9 +442,9 @@ async def process_chat(session_key: str, user_message: str):
     elif not user_data["questionnaire_completed"]:
         print("📋 INFORMATION GATHERING MODE: Using enhanced adaptive questioning")
         
-        missing_info = get_missing_information_list(user_data)
+        missing_info = get_missing_information_list(user_data, REQUIRED_INFORMATION)
         ai_response = generate_enhanced_information_gathering_response(
-            enhanced_analysis, missing_info, user_data, chat_history, detected_language, flow_manager
+            enhanced_analysis, missing_info, user_data, chat_history,REQUIRED_INFORMATION, detected_language, flow_manager
         )
         
     else:
