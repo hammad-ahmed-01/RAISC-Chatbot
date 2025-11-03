@@ -1,6 +1,6 @@
 # app/services/language_service.py
 from langchain_groq import ChatGroq
-from langchain.schema import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from app.config import GROQ_API_KEY
 import re
 

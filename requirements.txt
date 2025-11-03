@@ -1,21 +1,34 @@
-fastapi
-uvicorn
-google-cloud-firestore
-langchain
-langchain-groq
-langchain-community
-sentence-transformers
-chromadb
-langchain_chroma
-langchain_huggingface
-nltk
-openai
-langchain_openai
-livekit
-livekit-agents
-livekit-plugins-groq
-livekit-plugins-deepgram
-livekit-plugins-silero
-asyncio-mqtt
-livekit-plugins-azure
-dotenv
+# --- Core framework ---
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+
+# --- Google Cloud ---
+google-cloud-firestore>=2.16.0
+
+# --- LangChain ecosystem (modular, stable) ---
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+langchain-openai>=0.2.0
+langchain-groq>=0.1.0
+langchain-chroma>=0.1.0
+langchain-huggingface>=0.1.0
+
+# --- Embeddings & NLP ---
+sentence-transformers>=3.0.0
+nltk>=3.9.0
+chromadb>=0.5.3
+
+# --- LiveKit AI Realtime (voice/video) ---
+livekit>=0.17.0
+livekit-agents>=0.8.0
+livekit-plugins-groq>=0.3.0
+livekit-plugins-deepgram>=0.3.0
+livekit-plugins-silero>=0.3.0
+livekit-plugins-azure>=0.3.0
+
+# --- MQTT / async integrations ---
+asyncio-mqtt>=0.16.1
+
+# --- Environment management ---
+python-dotenv>=1.0.1
