@@ -35,7 +35,6 @@ def get_information_prompts(language: str) -> dict:
             'mental_health_history': "Do you have any history of mental health issues?",
             # 'current_condition': "How are you feeling right now? What's your current emotional state?",
             'physical_activity': "Are you physically active? Do you do exercise of any kind?",
-            'suicidal_thoughts': "Are you experiencing, or have experienced any suicidal thoughts in the past?"
         }
         
 def get_completion_message(name: str = None) -> str:
