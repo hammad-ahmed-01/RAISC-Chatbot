@@ -3,7 +3,7 @@ import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
 from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain.schema import SystemMessage, HumanMessage
 from app.services.firestore_service import get_chat_history, save_chat_history
 from app.services.user_service import get_user_data, store_user_data, get_doctor_summary
 from app.services.rag_service import process_user_message
