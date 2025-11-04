@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 google-cloud-firestore
-langchain
+langchain==0.0.331
 langchain-groq
 langchain-community
 sentence-transformers
