@@ -54,12 +54,6 @@ REQUIRED_INFORMATION = {
         "value": None, 
         "required": True,
         "description": "Does the user perform any sort of physical exercise"
-    },
-    "suicidal_thoughts": {
-        "collected": False, 
-        "value": None, 
-        "required": True,
-        "description": "Whether the user has experienced suicidal thoughts"
     }
 }
 def initialize_information_tracking(user_data: dict) -> dict:
@@ -93,70 +87,6 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
     # Create example JSON with only the current field
     example_json = {current_missing_field: f"actual_{current_missing_field}_value"}
     example_json_str = json.dumps(example_json, indent=4)
-    
-    # Language-aware extraction prompt that ONLY outputs real information for the current field
-    # English extraction with strict requirements
-    # extraction_prompt = f"""
-    # Analyze the following user message and extract ONLY information that is clearly and explicitly mentioned.
-    
-    # User message: "{user_message}"
-    
-    # Extract information for this field ONLY if clearly present in the message:
-    # - {current_missing_field}: {current_field_description}
-    
-    # LENIENT REQUIREMENTS:
-    # 1. Extract information that is reasonably clear or can be inferred from context
-    # 2. Accept vague responses and interpret them appropriately
-    # 3. DO NOT include placeholder values like "No information available", "Not specified", "Unknown"
-    # 4. Include information even if it's not perfectly explicit - users often speak casually
-    # 5. TREAT DENIAL/NEGATIVE RESPONSES AS VALID INFORMATION (e.g., "not aware of", "don't think so", "nothing", "no")
-    # 6. Accept indirect answers and reasonable interpretations
-    # 7. If absolutely no relevant information can be extracted, return an empty JSON object: {{}}
-    # 8. You have to ONLY extract the following field: {current_missing_field}. If the user gives DENIAL/NEGATIVE RESPONSES, Treat it as valid information and extract that as well.
-    
-    # EXAMPLES of what to extract (including vague/indirect responses):
-    # - "I'm feeling very anxious" → "current_condition": "very anxious"
-    # - "I've been like this for 3 weeks" → "duration": "3 weeks" 
-    # - "I have a history of depression" → "mental_health_history": "history of depression"
-    # - "I exercise daily" → "physical_activity": "exercises daily"
-    # - "I have never had suicidal thoughts" → "suicidal_thoughts": "no suicidal thoughts"
-    # - "No, I don't have any mental health history" → "mental_health_history": "no mental health history"
-    # - "I don't exercise at all" → "physical_activity": "no exercise"
-    # - "No, I've never thought about suicide" → "suicidal_thoughts": "no suicidal thoughts"
-    # - "I haven't been feeling this way for long" → "duration": "short duration"
-    # - "Not that I'm aware of" → "mental_health_history": "no known mental health history"
-    # - "I haven't noticed anything out of the ordinary" → "mental_health_history": "no mental health history"
-    # - "There hasn't been as far as I'm aware" → "mental_health_history": "no mental health history"
-    # - "Nothing comes to mind" → "mental_health_history": "no mental health history"
-    # - "I don't think so" → "mental_health_history": "no mental health history"
-    # - "Not really" → "mental_health_history": "no mental health history"
-    # - "I'm okay I guess" → "current_condition": "okay"
-    # - "Could be better" → "current_condition": "not great"
-    # - "Same as usual" → "current_condition": "usual state"
-    # - "A while now" → "duration": "some time"
-    # - "Recently" → "duration": "recent"
-    # - "It's been tough lately" → "current_condition": "struggling recently"
-    # - "Sometimes I go for walks" → "physical_activity": "occasional walking"
-    # - "Used to exercise but not anymore" → "physical_activity": "previously exercised, not currently"
-    # - "I try to stay active" → "physical_activity": "tries to stay active"
-    # - "Never really thought about it" → "suicidal_thoughts": "no suicidal thoughts"
-    
-    # EXAMPLES of what NOT to extract:
-    # - Completely unrelated responses "What's the weather?" → {{}} (not relevant to any field)
-    # - Pure greetings "Hi there!" → {{}} (not relevant information)
-    
-    # IMPORTANT: 
-    # Be lenient and interpretive. 
-    # Users often give casual, conversational answers that contain useful information even if not perfectly direct.
-    # If the user gives resistance or does not want to answer a question, leave that question as empty and move on to the next. 
-
-    # Current field to extract: {current_missing_field}
-    
-    # Example response format (only include the field if it has actual data):
-    # {example_json_str}
-    
-    # Response (JSON with only the current field if it has clear information):
-    # """
 
     extraction_prompt = f"""
     You are a therapeutic context extractor. Your goal is to identify **relevant psychological or behavioral information**
@@ -235,9 +165,6 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
 
     User: “I used to exercise more but not these days.”
     → {{ "physical_activity": "previously exercised, not currently" }}
-
-    User: “No, not really. I don’t think I ever have.”
-    → {{ "suicidal_thoughts": "no suicidal thoughts" }}
 
     User: “Hmm depends, I guess sometimes I feel anxious when alone.”
     → {{ "current_condition": "sometimes anxious when alone" }}
@@ -354,27 +281,6 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
         if last_messages:
             user_last_message = last_messages[-1]["content"]
     
-    # Create dynamic question generation prompt
-    # generation_prompt = f"""
-    # You are a warm, empathetic mental health assistant that only speaks ENGLISH.
-    
-    # TASK: Generate a natural, conversational question to ask about: "{missing_field}" 
-    
-    # FIELD INFORMATION:
-    # - Field name: {missing_field}
-    # - What we need to know: {field_description}
-    
-    # USER'S LAST MESSAGE: "{user_last_message}"
-
-    # The user's last message "{user_last_message}", in addition to containing answer of the asked question, can be of various types.
-    # Case 1. It could contain a counter question or be unrelated to the questionnaire.
-
-    # In case of case 1, Answer the user's counter question if it lies in the domain of mental health, 
-    # or is part of conversation flow, and then ask the natural question.
-
-
-    # Generate a natural question about "{missing_field}"
-    # """
     generation_prompt = f"""
     You are **RAISC**, a warm, empathetic mental health assistant who speaks **only English**. 
     You engage users in a natural, therapist-like conversation to gently collect details about their mental and physical wellbeing.
@@ -491,7 +397,7 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
         return "Thank you! I now have a good understanding about you."
     
     # Prioritize which information to ask for first (based on conversation flow)
-    priority_order = ['current_condition', 'duration', 'mental_health_history', 'physical_activity', 'suicidal_thoughts']
+    priority_order = ['current_condition', 'duration', 'mental_health_history', 'physical_activity']
     next_info_to_ask = None
     
     # Find the highest priority missing information
@@ -576,43 +482,57 @@ def check_risk(agg: dict, threshold: float = -0.1) -> bool:
 
 def generate_conversation_summary(chat_history, session_start_index, previous_summary=None, language="english"):
     user_messages = [msg["content"] for msg in chat_history[session_start_index:] if msg.get("role") == "user"]
+
     if not user_messages:
         summary_text = "No messages to summarize in this session."
+        summary_tag = "None"
     else:
-        conversation_text = " ".join(user_messages)
-        
-        # Language-aware summary generation
+        conversation_text = " ".join(user_messages).strip()
+        prev_sum_str = previous_summary if previous_summary else "None"
+
+        # Force strict JSON output
         prompt_text = (
-            "You are a helpful assistant that summarizes conversations. "
-            "Summarize the following conversation concisely, focusing on the key points and overall tone. "
-            "If a previous summary is provided, relate the new summary to it, noting any changes, continuations, or new topics. "
-            "Otherwise just summarize the available conversation."
+            "You are a helpful assistant that summarizes conversations that may be bilingual "
+            "(English AND Roman Urdu) into English. Summarize the following conversation "
+            "concisely, focusing on the key points and overall tone. If a previous summary is "
+            "provided, relate the new summary to it, noting any changes, continuations, or new topics. "
+            "Also extract ONE single-word tag that best represents the main topic discussed related to emotions.\n\n"
+            "OUTPUT STRICTLY in JSON format exactly like:\n"
+            "{\n"
+            "  \"Summary\": \"The user discussed errors while deploying their app.\",\n"
+            "  \"Tag\": \"Deployment\"\n"
+            "}"
         )
-            
-        if previous_summary:
-            prompt_text += f"\nPrevious summary: {previous_summary}\n"
-                
-        prompt_text += f"Current conversation: {conversation_text}"
 
         prompt = (
             SystemMessage(content=prompt_text),
-            HumanMessage(content="")
+            HumanMessage(content=f"Previous summary: {prev_sum_str}\nCurrent conversation: {conversation_text}")
         )
+
         summary_output = llm(prompt)
-        summary_text = summary_output.content.strip()
+        raw = (summary_output.content or "").strip()
+
+        # Parse JSON response safely
+        try:
+            parsed = json.loads(raw)
+            summary_text = parsed.get("Summary", "Summary not available.")
+            summary_tag = parsed.get("Tag", "General")
+        except json.JSONDecodeError:
+            summary_text = raw if raw else "Summary not available."
+            summary_tag = "General"
 
     emotions = analyze_emotions(chat_history, session_start_index)
-    num_messages = emotions["num_messages"]
-    avg_compound = emotions["average_compound"]
-    min_compound = emotions["min_compound"]
-    max_compound = emotions["max_compound"]
+    num_messages = emotions.get("num_messages", 0)
+    avg_compound = emotions.get("average_compound", 0.0)
+    min_compound = emotions.get("min_compound", 0.0)
+    max_compound = emotions.get("max_compound", 0.0)
 
     if avg_compound > 0.1:
-        overall_emotion = "positive" if language == 'english' else "positive"
+        overall_emotion = "positive"
     elif avg_compound < -0.1:
-        overall_emotion = "negative" if language == 'english' else "negative"
+        overall_emotion = "negative"
     else:
-        overall_emotion = "neutral" if language == 'english' else "neutral"
+        overall_emotion = "neutral"
 
     emotional_summary = (
         f"This session included {num_messages} user messages. "
@@ -620,9 +540,10 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
         f"(min: {min_compound:.2f}, max: {max_compound:.2f}) "
         f"indicating an overall {overall_emotion} tone."
     )
-    
+    print(f"Summary title: {summary_tag} \n Summary content: {summary_text}")
     timestamp = datetime.now().isoformat()
     return {
+        "summary_title": summary_tag,
         "summary": summary_text,
         "emotional_summary": emotional_summary,
         "timestamp": timestamp
@@ -675,10 +596,12 @@ async def process_chat(session_key: str, user_message: str):
             
             # ALWAYS generate summary in English for backend storage (not user's language)
             summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, "english")
+            summary_tag = summary_data["summary_title"]
             summary_text = summary_data["summary"]
             emotional_summary = summary_data["emotional_summary"]
 
             user_data["past_summaries"].append({
+                "summary_title": summary_tag,
                 "summary": summary_text,
                 "emotional_summary": emotional_summary,
                 "timestamp": summary_data["timestamp"]
@@ -734,10 +657,12 @@ async def process_chat(session_key: str, user_message: str):
         
         # ALWAYS generate summary in English for backend storage
         summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, "english")
+        summary_tag = summary_data["summary_title"]
         summary_text = summary_data["summary"]
         emotional_summary = summary_data["emotional_summary"]
         
         user_data["past_summaries"].append({
+            "summary_title": summary_tag,
             "summary": summary_text,
             "emotional_summary": emotional_summary,
             "timestamp": summary_data["timestamp"]
