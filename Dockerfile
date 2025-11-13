@@ -4,8 +4,9 @@ FROM python:3.11-slim
 # Prevent Python from writing pyc files and buffer logs
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=300 \
+    PIP_FIND_LINKS=""
 
 WORKDIR /app
 
@@ -21,8 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy and install dependencies first (layer caching)
 COPY requirements.txt .
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install -r requirements.txt --no-cache-dir
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install --timeout=300 --retries=5 --default-timeout=300 -r requirements.txt
 
 # Copy the application
 COPY . .
