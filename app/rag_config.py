@@ -3,9 +3,9 @@ import os
 from langchain_groq import ChatGroq
 # from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 # from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_chroma import Chroma
+# from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_huggingface import HuggingFaceEmbeddings
 from app.config import MODEL_NAME
 from dotenv import load_dotenv
 load_dotenv()
