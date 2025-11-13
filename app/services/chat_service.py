@@ -927,7 +927,10 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
         "summary_title": summary_title,
         "summary": summary_text,
         "emotional_summary": emotional_summary,
-        "timestamp": timestamp
+        "timestamp": timestamp,
+        "session_start_msg": session_start_index,
+        "session_end_msg": len(chat_history) - 1,
+
     }
 
 # Main chat processing logic with bilingual support
@@ -980,12 +983,14 @@ async def process_chat(session_key: str, user_message: str):
             summary_tag = summary_data["summary_title"]
             summary_text = summary_data["summary"]
             emotional_summary = summary_data["emotional_summary"]
-
+            timestamp = datetime.now().isoformat()
             user_data["past_summaries"].append({
                 "summary_title": summary_tag,
                 "summary": summary_text,
                 "emotional_summary": emotional_summary,
-                "timestamp": summary_data["timestamp"]
+                "timestamp": timestamp,
+                "session_start_msg": session_start_index,
+                "session_end_msg": len(chat_history) - 1,
             })
             user_data["last_summarized_index"] = len(chat_history)
             user_data["session_start_index"] = len(chat_history)
@@ -1057,13 +1062,19 @@ async def process_chat(session_key: str, user_message: str):
         summary_tag = summary_data["summary_title"]
         summary_text = summary_data["summary"]
         emotional_summary = summary_data["emotional_summary"]
-        
+        timestamp = datetime.now().isoformat()
+
         user_data["past_summaries"].append({
             "summary_title": summary_tag,
             "summary": summary_text,
             "emotional_summary": emotional_summary,
-            "timestamp": summary_data["timestamp"]
+            "timestamp": timestamp,
+            "session_start_msg": session_start_index,
+            "session_end_msg": len(chat_history) - 1
         })
+        print(f"*session_start_index: {session_start_index}, session_end_index: {len(chat_history) - 1}*")
+
+
         user_data["last_summarized_index"] = len(chat_history)
         user_data["session_start_index"] = len(chat_history)
         user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
