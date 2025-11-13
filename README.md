@@ -1,4 +1,4 @@
-# 🚀 RAISC Chatbot
+# RAISC Chatbot
 
 ## 📌 Project Overview
 RAISC Chatbot is an AI-powered chatbot system built using **FastAPI**. It features:
