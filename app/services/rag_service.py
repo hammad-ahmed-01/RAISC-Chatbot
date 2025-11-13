@@ -69,33 +69,35 @@ def process_via_english_rag_chain(
         else:
             user_context = "Getting to know this person to provide better support."
 
-    # Add past summaries
+    # Add past summaries (reduced to avoid over-referencing past conversations)
     past_summaries_context = ""
     if user_data and "past_summaries" in user_data:
         past_summaries = user_data["past_summaries"]
         if past_summaries:
-            limited_summaries = past_summaries[-max_summaries:]
-            past_summaries_context = "Past conversation summaries:\n"
+            # Only use the most recent summary to avoid information overload
+            limited_summaries = past_summaries[-1:] if past_summaries else []
+            past_summaries_context = "Previous session context (for background only, do not reference directly):\n"
             for summary in limited_summaries:
-                past_summaries_context += f"[{summary['timestamp']}] {summary['summary']}\n"
+                past_summaries_context += f"{summary.get('summary', '')}\n"
 
-    # Add doctor summaries
+    # Add doctor summaries (reduced)
     doctor_summaries_context = ""
     if user_data and "doctor_summary" in user_data:
         doctor_summaries = user_data["doctor_summary"]
         if doctor_summaries:
-            limited_doctor_summaries = doctor_summaries[-max_doctor_summaries:]
-            doctor_summaries_context = "Professional notes:\n"
+            # Only use the most recent doctor summary
+            limited_doctor_summaries = doctor_summaries[-1:] if doctor_summaries else []
+            doctor_summaries_context = "Professional notes (for background only):\n"
             for summary in limited_doctor_summaries:
-                if isinstance(summary, dict) and "summary" in summary and "timestamp" in summary:
-                    doctor_summaries_context += f"[{summary['timestamp']}] {summary['summary']}\n"
+                if isinstance(summary, dict) and "summary" in summary:
+                    doctor_summaries_context += f"{summary['summary']}\n"
                 else:
-                    doctor_summaries_context += f"- {summary}\n"
+                    doctor_summaries_context += f"{summary}\n"
 
     # Get English language context
     language_context = get_language_context_for_prompts("english")
     
-    # Combine all context
+    # Combine all context (keep it minimal)
     full_context = f"{user_context}\n{past_summaries_context}\n{doctor_summaries_context}\n{additional_context}".strip()
 
     # Use English RAG chain (full RAG processing: retrieval → context → generation)
@@ -106,7 +108,28 @@ def process_via_english_rag_chain(
         "language_context": language_context,
     })
 
-    return _to_text(result)
+    response = _to_text(result)
+    
+    # Post-process to ensure response is short and focused
+    # Split by sentences and keep only first 2 sentences max
+    sentences = response.split('. ')
+    if len(sentences) > 2:
+        # Keep first 2 sentences and add period if needed
+        response = '. '.join(sentences[:2])
+        if not response.endswith('.'):
+            response += '.'
+    
+    # Additional safety: truncate if response is too long (more than 200 characters)
+    if len(response) > 200:
+        # Find the last complete sentence before 200 chars
+        truncated = response[:200]
+        last_period = truncated.rfind('.')
+        if last_period > 0:
+            response = truncated[:last_period + 1]
+        else:
+            response = truncated + '...'
+    
+    return response
 
 
 # Backwards compatibility function (if needed)

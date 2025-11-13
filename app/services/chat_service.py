@@ -1,5 +1,6 @@
 # app/services/chat_service.py
 import nltk
+import re
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
 from langchain_groq import ChatGroq
@@ -56,6 +57,80 @@ REQUIRED_INFORMATION = {
         "description": "Does the user perform any sort of physical exercise"
     }
 }
+
+CONTROLLED_TAGS = [
+    # Emotional
+    "Low Mood", "Sadness", "Hopelessness", "Irritability", "Emotional Distress", "Emotional Numbness", "Mood Swings",
+
+    # Anxiety / Stress
+    "Anxiety", "Panic Symptoms", "Worry", "Overthinking", "Work Stress", "Academic Stress",
+    "Social Anxiety", "Adjustment Stress", "Overwhelm",
+
+    # Trauma
+    "Trauma History", "Hypervigilance", "Fear", "Avoidance",
+
+    # Behavioral
+    "Fatigue", "Sleep Issues", "Insomnia", "Burnout", "Low Motivation",
+    "Procrastination", "Isolation", "Withdrawal",
+
+    # Cognitive
+    "Negative Self-Talk", "Cognitive Distortions", "Low Self-Worth", "Perfectionism", "Rumination",
+
+    # Risk
+    "Self-Harm Thoughts", "Suicidal Ideation", "Substance Misuse", "Impulsivity",
+
+    # Coping
+    "Coping Skills", "Exercise", "Social Support", "Healthy Habits", "Mindfulness"
+]
+
+def extract_tags_from_taxonomy(conversation_text: str, max_tags: int = 5):
+    """
+    Uses LLM to map conversation themes to a fixed clinical taxonomy.
+    Ensures clean, consistent tags.
+    """
+
+    taxonomy_str = ", ".join(CONTROLLED_TAGS)
+
+    prompt = f"""
+    You are a clinical psychologist creating session summary tags.
+
+    TASK:
+    - Read the conversation below.
+    - Identify the main emotional, cognitive, behavioral, or situational themes.
+    - Select ONLY from this taxonomy of clinical tags:
+
+    {taxonomy_str}
+
+    RULES:
+    - Choose up to {max_tags} tags.
+    - Tags must come ONLY from the list above.
+    - Do NOT invent new tags.
+    - Do NOT output explanations.
+    - Output JSON list only.
+    - Keep ordering logical (most prominent themes first).
+
+    Conversation:
+    \"\"\"{conversation_text}\"\"\"
+
+    Example output:
+    ["Anxiety", "Work Stress", "Low Mood"]
+    """
+
+    try:
+        resp = llm([
+            SystemMessage(content="You generate clinical tags from a controlled taxonomy."),
+            HumanMessage(content=prompt)
+        ])
+        text = resp.content.strip()
+        match = re.search(r"\[[\s\S]*\]", text)
+        if match:
+            tags = json.loads(match.group())
+            return tags[:max_tags]
+    except Exception as e:
+        print(f"[TAGS] Controlled taxonomy tag generation failed: {e}")
+
+    return []
+
 def initialize_information_tracking(user_data: dict) -> dict:
     """Initialize or update the information tracking structure
     DYNAMICALLY based on REQUIRED_INFORMATION fields"""
@@ -421,17 +496,255 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
     # Generate dynamic question using LLM
     return generate_dynamic_question(next_info_to_ask, field_description, chat_history)
 
-def create_collected_information_context(user_data: dict) -> str:
-    """Create context string with collected information for RAG"""
-    collected_info = []
+# REMOVE THIS COMMENTED OUT FUNC 
+# def generate_questionnaire_insights(user_data: dict) -> dict:
+    """Generate meaningful insights from questionnaire results in complete sentences"""
+    insights = {}
     info_needed = user_data.get("information_needed", {})
     
+    # Collect all raw values for context
+    collected_data = {}
     for key, info in info_needed.items():
         if info.get("collected", False) and info.get("value"):
-            collected_info.append(f"{key}: {info['value']}")
+            collected_data[key] = info.get("value", "")
     
-    if collected_info:
-        return f"Known information about this person: {', '.join(collected_info)}. Use this to personalize your therapeutic support."
+    if not collected_data:
+        return insights
+    
+    # Create a comprehensive prompt for generating insights
+    field_descriptions = {
+        "current_condition": "current mental and emotional state",
+        "duration": "duration of the current condition",
+        "mental_health_history": "mental health history including personal and family history",
+        "physical_activity": "physical activity and exercise patterns"
+    }
+    
+    # Build context string
+    context_parts = []
+    for key, value in collected_data.items():
+        field_desc = field_descriptions.get(key, key)
+        context_parts.append(f"{field_desc}: {value}")
+    
+    context_str = "\n".join(context_parts)
+    
+    insight_prompt = f"""
+    You are a clinical psychologist analyzing questionnaire responses. Your task is to transform brief, 
+    raw user responses into concise, factual summaries written in complete sentences.
+    
+    Raw questionnaire responses:
+    {context_str}
+    
+    For each field, generate ONE concise sentence that:
+    1. Accurately summarizes what the user said (do NOT add information they didn't provide)
+    2. Uses clear, professional language
+    3. Stays factual and does not make assumptions
+    4. Is written as a complete sentence (not fragments or 2-3 words)
+    
+    IMPORTANT: 
+    - Only state what the user actually said
+    - Do NOT add interpretations, assumptions, or details not mentioned
+    - Keep each insight to ONE sentence only
+    
+    Field descriptions:
+    - current_condition: Summary of the user's stated current mental/emotional state
+    - duration: Summary of the timeline the user mentioned
+    - mental_health_history: Summary of the mental health history the user shared
+    - physical_activity: Summary of the physical activity patterns the user described
+    
+    Output format (JSON):
+    {{
+        "current_condition": "One sentence summarizing their stated condition",
+        "duration": "One sentence summarizing the duration they mentioned",
+        "mental_health_history": "One sentence summarizing the history they shared",
+        "physical_activity": "One sentence summarizing their stated activity level"
+    }}
+    
+    Only include fields that have data. Be factual and concise.
+    """
+    
+    try:
+        prompt = [
+            SystemMessage(content="You are a clinical psychologist who writes clear, insightful summaries of patient information."),
+            HumanMessage(content=insight_prompt)
+        ]
+        
+        response = llm(prompt)
+        raw = (response.content or "").strip()
+        
+        # Parse JSON response
+        try:
+            json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                # Only keep insights for fields that actually have data
+                for key in collected_data.keys():
+                    if key in parsed and parsed[key]:
+                        insights[key] = parsed[key]
+        except json.JSONDecodeError:
+            # Fallback: generate individual insights
+            for key, value in collected_data.items():
+                field_desc = field_descriptions.get(key, key)
+                fallback_insight = f"The user's {field_desc} indicates: {value}."
+                insights[key] = fallback_insight
+        
+        return insights
+        
+    except Exception as e:
+        print(f"Error generating questionnaire insights: {e}")
+        # Fallback to simple sentences
+        for key, value in collected_data.items():
+            field_desc = field_descriptions.get(key, key)
+            insights[key] = f"The user's {field_desc} indicates: {value}."
+        return insights
+
+def generate_questionnaire_insights(user_data: dict, interpretive: bool = True) -> dict:
+    """
+    Generate meaningful, full-sentence insights from questionnaire responses.
+    If interpretive=True, a second pass adds brief clinical interpretation.
+    """
+    insights = {}
+    info_needed = user_data.get("information_needed", {})
+    collected_data = {
+        key: info.get("value", "")
+        for key, info in info_needed.items()
+        if info.get("collected", False) and info.get("value")
+    }
+
+    if not collected_data:
+        return insights
+
+    field_descriptions = {
+        "current_condition": "the user's current mental and emotional state",
+        "duration": "the duration for which they have been feeling this way",
+        "mental_health_history": "their personal or family mental health history",
+        "physical_activity": "their physical activity or exercise habits"
+    }
+
+    # Build descriptive context
+    context_parts = [
+        f"{field_descriptions.get(key, key)}: {value}"
+        for key, value in collected_data.items()
+    ]
+    context_str = "\n".join(context_parts)
+
+    # Descriptive factual sentences
+    descriptive_prompt = f"""
+    You are a clinical psychologist writing brief intake notes.
+    Rewrite the user's responses into short, professional clinical statements.
+
+    RULES:
+    - Use the word "Client" instead of "user".
+    - One sentence per field.
+    - MAXIMUM 12–16 words per sentence.
+    - Use neutral, factual language (e.g., "Client reported...", "Client denied...").
+    - No interpretation, no assumptions, no clinical speculation.
+    - No extra details.
+    - No adjectives unless stated by client.
+    - Do NOT use quotes.
+    - Do NOT say "the user said".
+    - Do NOT use long sentences.
+
+    Rewrite the following responses:
+
+    {context_str}
+
+    Output JSON like:
+    {{
+    "current_condition": "Client reported feeling uncertain.",
+    "duration": "Symptoms present for about two weeks.",
+    "mental_health_history": "Client denied any relevant mental health history.",
+    "physical_activity": "Client occasionally goes for a weekend run."
+    }}
+
+    Only include fields that have data.
+    """
+
+    try:
+        prompt = [
+            SystemMessage(content="You are a factual clinical summarizer."),
+            HumanMessage(content=descriptive_prompt)
+        ]
+        response = llm(prompt)
+        raw = (response.content or "").strip()
+        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if json_match:
+            descriptive = json.loads(json_match.group())
+        else:
+            descriptive = {k: f"The user's {field_descriptions.get(k, k)} indicates: {v}." for k, v in collected_data.items()}
+    except Exception as e:
+        print(f"[Questionnaire] Descriptive generation error: {e}")
+        descriptive = {k: f"The user's {field_descriptions.get(k, k)} indicates: {v}." for k, v in collected_data.items()}
+
+    if not interpretive:
+        return descriptive
+
+    # Interpretive insight shit, second LLM pass for deeper meaning (kharchay)
+    interpretive_prompt = f"""
+    You are a licensed clinical psychologist writing short case notes.
+    Using the following factual summaries, create interpretive sentences that describe what these might imply
+    about the user's psychological state, coping ability, or lifestyle.
+
+    Factual summaries:
+    {json.dumps(descriptive, indent=2)}
+
+    Write one interpretive sentence per field in JSON format.
+    Example:
+    {{
+        "current_condition": "The user appears to be experiencing emotional exhaustion, likely related to sustained stress.",
+        "duration": "The condition seems persistent rather than situational.",
+        "mental_health_history": "A possible genetic or environmental predisposition may exist.",
+        "physical_activity": "Their limited physical activity may contribute to low mood or energy levels."
+    }}
+    Each sentence should:
+    - Be professional and empathetic.
+    - Avoid diagnostic terms (like depression, anxiety).
+    - Express insights, not judgments.
+    """
+
+    try:
+        prompt2 = [
+            SystemMessage(content="You are a reflective clinician who writes brief insights."),
+            HumanMessage(content=interpretive_prompt)
+        ]
+        resp2 = llm(prompt2)
+        raw2 = (resp2.content or "").strip()
+        json_match2 = re.search(r"\{.*\}", raw2, re.DOTALL)
+        if json_match2:
+            interpretive = json.loads(json_match2.group())
+        else:
+            interpretive = {}
+    except Exception as e:
+        print(f"[Questionnaire] Interpretive generation error: {e}")
+        interpretive = {}
+
+    # Merge descriptive + interpretive
+    for key, desc in descriptive.items():
+        if key in interpretive:
+            insights[key] = f"{desc} {interpretive[key]}"
+        else:
+            insights[key] = desc
+
+    return insights
+
+def create_collected_information_context(user_data: dict) -> str:
+    """Create context string with collected information for RAG using meaningful insights"""
+    # Use stored insights if available, otherwise generate them
+    insights = user_data.get("questionnaire_insights", {})
+    
+    # If no stored insights, generate them (but don't store to avoid unnecessary writes)
+    if not insights:
+        insights = generate_questionnaire_insights(user_data)
+    
+    if not insights:
+        return ""
+    
+    # Format insights as complete sentences
+    insight_sentences = []
+    for key, insight in insights.items():
+        insight_sentences.append(insight)
+    
+    if insight_sentences:
+        return f"Patient background and context: {' '.join(insight_sentences)} Use this information to provide personalized therapeutic support."
     else:
         return ""
 
@@ -482,31 +795,58 @@ def check_risk(agg: dict, threshold: float = -0.1) -> bool:
 
 def generate_conversation_summary(chat_history, session_start_index, previous_summary=None, language="english"):
     user_messages = [msg["content"] for msg in chat_history[session_start_index:] if msg.get("role") == "user"]
+    assistant_messages = [msg["content"] for msg in chat_history[session_start_index:] if msg.get("role") == "assistant"]
 
     if not user_messages:
         summary_text = "No messages to summarize in this session."
-        summary_tag = "None"
+        summary_title = "No Conversation"
     else:
         conversation_text = " ".join(user_messages).strip()
+        assistant_context = " ".join(assistant_messages[-3:]).strip() if assistant_messages else ""
         prev_sum_str = previous_summary if previous_summary else "None"
 
-        # Force strict JSON output
+        # Enhanced prompt for meaningful summaries and titles
+        # here we can enhance, lengthen our summary & titles type stuff
         prompt_text = (
-            "You are a helpful assistant that summarizes conversations that may be bilingual "
-            "(English AND Roman Urdu) into English. Summarize the following conversation "
-            "concisely, focusing on the key points and overall tone. If a previous summary is "
-            "provided, relate the new summary to it, noting any changes, continuations, or new topics. "
-            "Also extract ONE single-word tag that best represents the main topic discussed related to emotions.\n\n"
+            "You are a licensed clinical psychologist writing post-session notes. "
+            "Write in the first-person perspective of the clinician ('Client presented with...', 'Session focused on...', 'Intervention included...')."
+            "Keep tone objective, professional, and consistent with clinical documentation style."
+
+            "The conversation may be bilingual (English AND Roman Urdu) and you must output only in English."
+            "Your task is to create a comprehensive summary and a meaningful title that would be useful "
+            "for a mental health professional reviewing the session.\n\n"
+            
+            "GUIDELINES:\n"
+            "1. **Summary**: Write 2-4 complete sentences that capture:\n"
+            "   - Key themes, emotions, and concerns discussed\n"
+            "   - Important details about the user's mental state\n"
+            "   - Any significant patterns, changes, or developments\n"
+            "   - Clinical relevance and psychological insights\n"
+            "   - If a previous summary exists, note how this session relates to it (continuation, new topic, etc.)\n\n"
+            
+            "2. **Title**: Create a descriptive, meaningful title (2-6 words) that:\n"
+            "   - Captures the main focus or theme of the conversation\n"
+            "   - Is specific enough to be informative but concise\n"
+            "   - Uses professional but accessible language\n"
+            "   - Examples: 'Anxiety Management Discussion', 'Exploring Relationship Stress', 'Coping Strategies for Depression'\n"
+            "   - NOT single words like 'Anxiety' or 'Stress' - be descriptive\n\n"
+
             "OUTPUT STRICTLY in JSON format exactly like:\n"
             "{\n"
-            "  \"Summary\": \"The user discussed errors while deploying their app.\",\n"
-            "  \"Tag\": \"Deployment\"\n"
+            "  \"Summary\": \"The user discussed experiencing persistent anxiety over the past few weeks, particularly "
+            "related to work deadlines and social interactions. They expressed feeling overwhelmed and having difficulty "
+            "sleeping. The conversation explored coping mechanisms and the user showed interest in learning relaxation techniques.\",\n"
+            "  \"Title\": \"Anxiety Management and Coping Strategies\"\n"
             "}"
         )
 
+        conversation_context = f"User messages: {conversation_text}"
+        if assistant_context:
+            conversation_context += f"\n\nRecent therapist responses (for context): {assistant_context}"
+
         prompt = (
             SystemMessage(content=prompt_text),
-            HumanMessage(content=f"Previous summary: {prev_sum_str}\nCurrent conversation: {conversation_text}")
+            HumanMessage(content=f"Previous session summary: {prev_sum_str}\n\nCurrent session conversation:\n{conversation_context}")
         )
 
         summary_output = llm(prompt)
@@ -514,12 +854,22 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
 
         # Parse JSON response safely
         try:
-            parsed = json.loads(raw)
-            summary_text = parsed.get("Summary", "Summary not available.")
-            summary_tag = parsed.get("Tag", "General")
+            json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                summary_text = parsed.get("Summary", "Summary not available.")
+                summary_title = extract_tags_from_taxonomy(conversation_text)
+
+            else:
+                # Try to extract from non-JSON response
+                summary_text = raw if raw else "Summary not available."
+                summary_title = "General Discussion"
         except json.JSONDecodeError:
+            # Fallback: try to create a basic summary
             summary_text = raw if raw else "Summary not available."
-            summary_tag = "General"
+            # Extract a simple title from the first sentence
+            first_sentence = summary_text.split('.')[0] if summary_text else "General Discussion"
+            summary_title = first_sentence[:50] if len(first_sentence) > 50 else first_sentence
 
     emotions = analyze_emotions(chat_history, session_start_index)
     num_messages = emotions.get("num_messages", 0)
@@ -540,10 +890,10 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
         f"(min: {min_compound:.2f}, max: {max_compound:.2f}) "
         f"indicating an overall {overall_emotion} tone."
     )
-    print(f"Summary title: {summary_tag} \n Summary content: {summary_text}")
+    print(f"Summary title: {summary_title} \n Summary content: {summary_text}")
     timestamp = datetime.now().isoformat()
     return {
-        "summary_title": summary_tag,
+        "summary_title": summary_title,
         "summary": summary_text,
         "emotional_summary": emotional_summary,
         "timestamp": timestamp
@@ -634,6 +984,13 @@ async def process_chat(session_key: str, user_message: str):
     was_completed_before = user_data.get("questionnaire_completed", False)
     user_data["questionnaire_completed"] = is_questionnaire_complete(user_data)
     just_completed = not was_completed_before and user_data["questionnaire_completed"]
+    
+    # Generate and store insights when questionnaire is completed
+    if just_completed:
+        insights = generate_questionnaire_insights(user_data)
+        if insights:
+            user_data["questionnaire_insights"] = insights
+            print(f"Generated questionnaire insights: {insights}")
 
     # Update session-specific sentiment aggregate
     session_agg_sentiment = user_data["session_agg_sentiment"]
@@ -645,11 +1002,20 @@ async def process_chat(session_key: str, user_message: str):
     user_data["last_interaction"] = current_time.isoformat()
     store_user_data(session_key, user_data)
 
-    # Check if user explicitly ends the session (language-aware)
+    # Check if user explicitly ends the session (language-aware) 
     end_session_phrases = ["end session", "goodbye", "exit", "bye", "end"]
 
     user_message_lower = user_message.lower()
-    is_ending_session = any(phrase in user_message_lower for phrase in end_session_phrases)
+    end_session_patterns = [
+        r"\bend session\b",
+        r"\bbye\b",
+        r"\bgoodbye\b",
+        r"\bexit\b",
+        r"^end$"  # Only match "end" if it's the entire message not substring
+    ]
+
+    user_message_lower = user_message.lower()
+    is_ending_session = any(re.search(pattern, user_message_lower) for pattern in end_session_patterns)
     
     if is_ending_session:
         session_start_index = user_data["session_start_index"]
@@ -699,8 +1065,13 @@ async def process_chat(session_key: str, user_message: str):
         print("INFORMATION GATHERING MODE: Using dynamic LLM-generated questions")
         missing_info = get_missing_information_list(user_data)
         ai_response = generate_information_gathering_response(chat_history, missing_info)
-
+        
+    else:
+        # THERAPEUTIC MODE - Full RAG processing with language awareness
+        print("THERAPEUTIC MODE: Using full RAG processing with language awareness")
+        
         # Check if questionnaire was just completed to add a transition message
+        transition_prefix = ""
         if just_completed:
             # Get collected name for personalization
             name = ""
@@ -708,12 +1079,8 @@ async def process_chat(session_key: str, user_message: str):
             if "name" in info_needed and info_needed["name"].get("collected", False):
                 name = info_needed["name"].get("value", "")
             
-            transition_message = get_completion_message(name)
-            ai_response = transition_message + ai_response
-        
-    else:
-        # THERAPEUTIC MODE - Full RAG processing with language awareness
-        print("THERAPEUTIC MODE: Using full RAG processing with language awareness")
+            transition_prefix = get_completion_message(name)
+            print("Questionnaire just completed - transitioning to therapeutic mode")
         
         # Create context with collected information
         collected_info_context = create_collected_information_context(user_data)
@@ -727,6 +1094,10 @@ async def process_chat(session_key: str, user_message: str):
             max_doctor_summaries=2,
             additional_context=collected_info_context
         )
+        
+        # Prepend transition message if questionnaire was just completed
+        if transition_prefix:
+            ai_response = transition_prefix + ai_response
 
     chat_history.append({"role": "assistant", "content": ai_response})
     save_chat_history(session_key, chat_history)
