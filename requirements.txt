@@ -11,16 +11,13 @@ langchain-chroma
 langchain-groq
 langchain-huggingface
 
-# Vector DB + embeddings
 sentence-transformers
 chromadb
 
-# Utils
 nltk
 openai
 python-dotenv
 
-# LiveKit ecosystem
 livekit
 livekit-agents
 livekit-plugins-groq
