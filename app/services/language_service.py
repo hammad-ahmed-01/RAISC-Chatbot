@@ -1,6 +1,6 @@
 # app/services/language_service.py
 from langchain_groq import ChatGroq
-from langchain.schema import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from app.config import GROQ_API_KEY
 import re
 
@@ -129,53 +129,13 @@ def detect_language_with_llm(message: str) -> str:
 
 def get_language_context_for_prompts(language: str) -> str:
     """
-    Get language-specific context for LLM prompts with strict Pakistani Urdu enforcement
+    Get language-specific context for LLM prompts with strict ENGLISH Only enforcement
     """
-    if language == 'roman_urdu':
-        return """
-        CRITICAL LANGUAGE INSTRUCTION: Respond STRICTLY in Pakistani Roman Urdu (Urdu written in Latin script).
-        
-        MANDATORY PAKISTANI URDU VOCABULARY - USE THESE EXACT WORDS:
-        - Problem = masla (NOT samasya)
-        - Solution = hal (NOT samadhan) 
-        - Person = shakhs/insaan (NOT vyakti)
-        - Experience = tajurba (NOT anubhav)
-        - Behavior = rawayya (NOT vyavahar)
-        - Treatment = ilaaj (NOT upchar)
-        - Worry = pareshani/fikar (NOT chinta)
-        - Help = madad (NOT sahayata)
-        - Way/Method = tarika (NOT upay)
-        - Feeling = ehsas/jazbat (NOT vyatha)
-        - Mind = dimagh/zehn (NOT man)
-        - Health = sehat/tandrusti (NOT swasthya)
-        - Reason = waja (NOT karan)
-        - Beautiful = khoobsurat/haseen (NOT sundar)
-        - Prosperous = khushal (NOT samriddh)
-        - Best wishes = naik khuwahishat (NOT shubhkamnayein)
-        - Time = waqt (NOT samay)
-        
-        PAKISTANI SENTENCE PATTERNS:
-        - Use "aap" (you), "main" (I), "hai" (is), "hoon" (am)
-        - Use "kya" (what), "kyun" (why), "kaise" (how), "kab" (when)
-        - Use Pakistani expressions: "theek hai", "bilkul sahi", "bohat acha"
-        
-        ABSOLUTELY FORBIDDEN HINDI WORDS:
-        - samasya, samadhan, vyakti, anubhav, vyavahar, upchar, chinta, sahayata, upay, vyatha
-        - swasthya, prabandhan, samvidhan, vyavastha, adhyayan, pariksha, karan
-        
-        CULTURAL CONTEXT:
-        - Use Pakistani social norms and Islamic references
-        - Use respectful titles: sahib, sahiba, bhai, behen
-        - Keep tone warm and respectful as per Pakistani culture
-        
-        VERIFICATION: Before responding, check your answer for ANY Hindi words and replace them with Pakistani Urdu equivalents.
-        """
-    else:
-        return """
-        LANGUAGE INSTRUCTION: Respond in clear, simple English.
-        Use a warm, supportive tone appropriate for mental health conversations.
-        Avoid overly complex vocabulary and keep sentences conversational.
-        """
+    return """
+    LANGUAGE INSTRUCTION: Respond in clear, simple ENGLISH ONLY.
+    Use a warm, supportive tone appropriate for mental health conversations.
+    Avoid overly complex vocabulary and keep sentences conversational.
+    """
 
 
 
@@ -202,35 +162,34 @@ def get_greeting_message(language: str, user_message: str, name: str = None) -> 
             ])
         return response.content.strip()
         
-def get_completion_message(language: str, name: str = None) -> str:
+def get_completion_message(name: str = None) -> str:
     """
     Get questionnaire completion message
     """
-    if language == 'roman_urdu':
-        if name:
-            return f"Bohat shukriya {name}! Ab mujhe aapki situation samajh aa gayi hai. "
-        else:
-            return "Bohat shukriya! Ab mujhe aapki situation samajh aa gayi hai. "
+    if name:
+        return f"Thank you for sharing that with me, {name}! I feel like I have a good understanding of your situation now. "
     else:
-        if name:
-            return f"Thank you for sharing that with me, {name}! I feel like I have a good understanding of your situation now. "
-        else:
-            return "Thank you for sharing that with me! I feel like I have a good understanding of your situation now. "
+        return "Thank you for sharing that with me! I feel like I have a good understanding of your situation now. "
 
 def get_risk_intervention_message(language: str) -> str:
     """
     Get risk intervention message
     """
-    if language == 'roman_urdu':
-        return (
-            "Mujhe laga hai ke aap thoda pareshan hain. Shayad aapko kisi professional se baat karni chahiye. "
-            "Main yaad dilana chahta hoon ke main kisi professional doctor ka replacement nahi hoon. "
-            "Kya aap chahenge ke main aapko koi resources ya professional help dhoondhne mein madad karun?"
-        )
-    else:
-        return (
-            "I've noticed that our conversation seems to reflect some distress. "
-            "It might be helpful to consider speaking with a mental health professional. "
-            "Please remember, I'm not a substitute for professional advice. "
-            "Would you like some resources or help finding support?"
-        )
+    return (
+        "I've noticed that our conversation seems to reflect some distress. "
+        "It might be helpful to consider speaking with a mental health professional. "
+        "Please remember, I'm not a substitute for professional advice. "
+        "Would you like some resources or help finding support?"
+    )
+
+def get_session_end_message(language: str) -> str:
+    """
+    Get session ending message
+    """
+    return "Here is your session summary:"
+
+def get_error_message(language: str) -> str:
+    """
+    Get error message
+    """
+    return "I'm sorry, I'm experiencing some technical difficulties. Please try again in a moment."
