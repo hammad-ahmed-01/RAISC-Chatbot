@@ -9,6 +9,7 @@ from app.services.firestore_service import get_chat_history, save_chat_history
 from app.services.user_service import get_user_data, store_user_data, get_doctor_summary
 from app.services.rag_service import process_user_message
 from app.services.language_service import (
+    detect_language,
     get_greeting_message, 
     get_completion_message,
     get_risk_intervention_message,
@@ -151,7 +152,7 @@ def initialize_information_tracking(user_data: dict) -> dict:
                 user_data["information_needed"][key] = value.copy()
     
     return user_data
-def extract_all_information_from_message(user_message: str, current_missing_field: str) -> dict:
+def extract_all_information_from_message(user_message: str, current_missing_field: str, language: str = "english") -> dict:
     """Extract ONLY information for the current missing field from user's message using LLM with language awareness
     Always stores extracted information in English for consistency
     ONLY extracts real information - never placeholder values"""
@@ -167,6 +168,9 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
     extraction_prompt = f"""
     You are a therapeutic context extractor. Your goal is to identify *relevant psychological or behavioral information*
     from a casual, conversational message — as a human therapist would understand it.
+    
+    **LANGUAGE CONTEXT**: The user is speaking in {"Pakistani Roman Urdu" if language == "roman_urdu" else "English"}. 
+    Understand their message in this language, but ALWAYS extract and output information in ENGLISH only for backend consistency.
 
     User message:
     "{user_message}"
@@ -344,7 +348,7 @@ def get_missing_information_list(user_data: dict) -> list:
     
     return missing
 
-def generate_dynamic_question(missing_field: str, field_description: str, chat_history: list) -> str:
+def generate_dynamic_question(missing_field: str, field_description: str, chat_history: list, language: str = "english") -> str:
     """
     Generate a contextual question for a specific missing field using LLM
     No premade prompts - fully dynamic based on field name and description
@@ -358,7 +362,11 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
             user_last_message = last_messages[-1]["content"]
     
     generation_prompt = f"""
-    You are *RAISC, a warm, empathetic mental health assistant who speaks **only English*. 
+    You are *RAISC, a warm, empathetic mental health assistant. 
+    
+    **LANGUAGE INSTRUCTION**: Respond in {"Pakistani Roman Urdu (written in Roman/Latin script)" if language == "roman_urdu" else "English"}.
+    {"Use authentic Pakistani vocabulary, expressions like 'aap', 'main', 'kya', 'kaise', etc. Be respectful and culturally appropriate." if language == "roman_urdu" else "Use natural, conversational English that feels warm and supportive."}
+    
     You engage users in a natural, therapist-like conversation to gently collect details about their mental and physical wellbeing.
 
     ---
@@ -465,7 +473,7 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
         # Simple fallback
         return f"Could you tell me about {field_description}?"
 
-def generate_information_gathering_response(chat_history: list, missing_info: list) -> str:
+def generate_information_gathering_response(chat_history: list, missing_info: list, language: str = "english") -> str:
     """Generate a warm, conversational response asking for missing information
     Uses LLM to dynamically generate questions based on REQUIRED_INFORMATION fields"""
     
@@ -495,10 +503,10 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
     field_description = field_info.get("description", next_info_to_ask)
     
     # Generate dynamic question using LLM
-    return generate_dynamic_question(next_info_to_ask, field_description, chat_history)
+    return generate_dynamic_question(next_info_to_ask, field_description, chat_history, language)
 
 # REMOVE THIS COMMENTED OUT FUNC 
-# def generate_questionnaire_insights(user_data: dict) -> dict:
+def generate_questionnaire_insights(user_data: dict) -> dict:
     """Generate meaningful insights from questionnaire results in complete sentences"""
     insights = {}
     info_needed = user_data.get("information_needed", {})
@@ -936,6 +944,8 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
 # Main chat processing logic with bilingual support
 async def process_chat(session_key: str, user_message: str):
     # Detect language from user message
+    detected_language = detect_language(user_message)
+    print(f"[LANGUAGE] Detected language: {detected_language} for message: '{user_message[:50]}'")
     
     # Fetch user data and chat history with proper type checking
     user_data_raw = get_user_data(session_key)
@@ -950,8 +960,9 @@ async def process_chat(session_key: str, user_message: str):
     chat_history = get_chat_history(session_key) or []
     doctor_summary = get_doctor_summary(session_key)
 
-    # Store user's language preference
-
+    # Store user's detected language for this interaction
+    current_language = detected_language
+    
     # Initialize information tracking
     user_data = initialize_information_tracking(user_data)
 
@@ -1007,11 +1018,13 @@ async def process_chat(session_key: str, user_message: str):
 
     missing_info = get_missing_information_list(user_data)
     current_missing_field = missing_info[0] if missing_info else None
-
+    print("missing info list:", missing_info)
     # Only extract if there's a missing field
+    # Always extract in ENGLISH regardless of user's language
     if current_missing_field:
-        extracted_info = extract_all_information_from_message(user_message, current_missing_field)
+        extracted_info = extract_all_information_from_message(user_message, current_missing_field, current_language)
         user_data = update_collected_information(user_data, extracted_info)
+        print("Current user data after extraction:", user_data)
     else:
         extracted_info = {}
     user_data = update_collected_information(user_data, extracted_info)
@@ -1088,13 +1101,14 @@ async def process_chat(session_key: str, user_message: str):
         })
         save_chat_history(session_key, chat_history)
         store_user_data(session_key, user_data)
+        print("stored user data")
         
         print(f"[BACKEND] Session end summary stored silently: {summary_text[:100]}")
         return {"response": goodbye_msg}
     
     # Handle first-time users with language-appropriate greeting
     if len(chat_history) == 1:
-        greeting = get_greeting_message()
+        greeting = get_greeting_message(current_language, user_message)
         user_data["session_start_index"] = 1
         chat_history.append({"role": "assistant", "content": greeting})
         save_chat_history(session_key, chat_history)
@@ -1106,7 +1120,7 @@ async def process_chat(session_key: str, user_message: str):
         # INFORMATION GATHERING MODE - Dynamic LLM-generated questions
         print("INFORMATION GATHERING MODE: Using dynamic LLM-generated questions")
         missing_info = get_missing_information_list(user_data)
-        ai_response = generate_information_gathering_response(chat_history, missing_info)
+        ai_response = generate_information_gathering_response(chat_history, missing_info, current_language)
         
     else:
         # THERAPEUTIC MODE - Full RAG processing with language awareness
@@ -1121,7 +1135,7 @@ async def process_chat(session_key: str, user_message: str):
             if "name" in info_needed and info_needed["name"].get("collected", False):
                 name = info_needed["name"].get("value", "")
             
-            transition_prefix = get_completion_message(name)
+            transition_prefix = get_completion_message(current_language, name)
             print("Questionnaire just completed - transitioning to therapeutic mode")
         
         # Create context with collected information
@@ -1134,7 +1148,8 @@ async def process_chat(session_key: str, user_message: str):
             user_data, 
             max_summaries=3, 
             max_doctor_summaries=2,
-            additional_context=collected_info_context
+            additional_context=collected_info_context,
+            language=current_language
         )
         
         # Prepend transition message if questionnaire was just completed
