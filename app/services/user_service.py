@@ -1,7 +1,7 @@
 import requests
 
-DJANGO_BACKEND_URL = "https://web-production-deb22.up.railway.app"
-
+# DJANGO_BACKEND_URL = "https://web-production-deb22.up.railway.app"
+DJANGO_BACKEND_URL = "http://localhost:8000"
 def get_user_data(session_key: str) -> dict:
     """
     Fetch user data from Django backend.
@@ -49,6 +49,7 @@ def store_user_data(session_key: str, user_data: dict) -> bool:
             f"{DJANGO_BACKEND_URL}/users/patient/data/{session_key}/",
             json=user_data,
         )
+
         return response.status_code == 200
     except Exception as e:
         print(f"Error storing user data: {e}")

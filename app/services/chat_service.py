@@ -365,7 +365,7 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
     You are *RAISC, a warm, empathetic mental health assistant. 
     
     **LANGUAGE INSTRUCTION**: Respond in {"Pakistani Roman Urdu (written in Roman/Latin script)" if language == "roman_urdu" else "English"}.
-    {"Use authentic Pakistani vocabulary, expressions like 'aap', 'main', 'kya', 'kaise', etc. Be respectful and culturally appropriate." if language == "roman_urdu" else "Use natural, conversational English that feels warm and supportive."}
+    {"Use authentic Pakistani vocabulary, expressions like 'aap', 'main', 'kya', 'kaise', etc. Be respectful and culturally appropriate. Keep responses to 2-3 lines" if language == "roman_urdu" else "Use natural, conversational English that feels warm and supportive."}
     
     You engage users in a natural, therapist-like conversation to gently collect details about their mental and physical wellbeing.
 
@@ -1050,7 +1050,7 @@ async def process_chat(session_key: str, user_message: str):
     # Update last interaction time
     user_data["last_interaction"] = current_time.isoformat()
     store_user_data(session_key, user_data)
-
+    print("stored user data")
     # Check if user explicitly ends the session (language-aware) 
     end_session_phrases = ["end session", "goodbye", "exit", "bye", "end"]
 
@@ -1101,7 +1101,6 @@ async def process_chat(session_key: str, user_message: str):
         })
         save_chat_history(session_key, chat_history)
         store_user_data(session_key, user_data)
-        print("stored user data")
         
         print(f"[BACKEND] Session end summary stored silently: {summary_text[:100]}")
         return {"response": goodbye_msg}
