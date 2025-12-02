@@ -858,7 +858,7 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
         Keep tone objective, professional, and consistent with clinical documentation style.
 
         The conversation may be bilingual (English AND Roman Urdu). Output only in English.
-
+        CRITICAL: Regardless of conversation language, the Summary should always be in English
         GUIDELINES:
         1. Summary: Write 2–4 complete sentences describing:
         - Key themes, emotions, concerns

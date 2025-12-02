@@ -93,7 +93,7 @@ def detect_language_with_llm(message: str) -> str:
             HumanMessage(content=detection_prompt)
         ]
         
-        response = llm(prompt)
+        response = llm.invoke(prompt)
         detected = response.content.strip().lower()
         
         # Extract the decision
