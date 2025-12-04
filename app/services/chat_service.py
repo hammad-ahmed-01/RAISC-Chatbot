@@ -114,10 +114,11 @@ def extract_tags_from_taxonomy(conversation_text: str, max_tags: int = 5):
 
     Example output:
     ["Anxiety", "Work Stress", "Low Mood"]
+    
     """
 
     try:
-        resp = llm([
+        resp = llm.invoke([
             SystemMessage(content="You generate clinical tags from a controlled taxonomy."),
             HumanMessage(content=prompt)
         ])
@@ -164,7 +165,7 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
     example_json_str = json.dumps(example_json, indent=4)
 
     extraction_prompt = f"""
-    You are a therapeutic context extractor. Your goal is to identify **relevant psychological or behavioral information**
+    You are a therapeutic context extractor. Your goal is to identify *relevant psychological or behavioral information*
     from a casual, conversational message — as a human therapist would understand it.
 
     User message:
@@ -173,7 +174,7 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
     ---
 
     ### OBJECTIVE
-    Extract *only* the information that clearly or reasonably relates to the specified field.
+    Extract only the information that clearly or reasonably relates to the specified field.
     Each field describes a single topic of mental or physical well-being.
 
     ### FIELD TO ANALYZE
@@ -184,53 +185,53 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
 
     ### EXTRACTION GUIDELINES
 
-    1. **Lenient and Context-Aware**
+    1. *Lenient and Context-Aware*
     - Understand everyday language, slang, or vague phrases that still communicate a feeling, behavior, or history.
     - Use emotional tone or temporal cues to infer approximate meaning if the intent is clear.
     - Accept statements like “sort of okay”, “eh… not great”, “better than before” as valid data.
 
-    2. **Negation and Denial Handling**
-    - Treat any form of “no”, “not really”, “none”, “never”, “don’t think so”, “I guess not”, “not that I recall” as *explicit denials*.
+    2. *Negation and Denial Handling*
+    - Treat any form of “no”, “not really”, “none”, “never”, “don’t think so”, “I guess not”, “not that I recall” as explicit denials.
     - Extract that as "no <field_name>" (e.g., "no suicidal thoughts").
 
-    3. **Ambiguity & Hedges**
+    3. *Ambiguity & Hedges*
     - When users hedge (e.g., “I guess”, “maybe”, “kind of”, “sometimes”), include the information but label uncertainty.
     - Example: "physical_activity": "sometimes exercises (uncertain frequency)".
 
-    4. **Multi-Aspect Answers**
+    4. *Multi-Aspect Answers*
     - If multiple ideas are given (e.g., “Mentally fine but physically tired”), prioritize the aspect relevant to the current field.
     - Ignore unrelated topics even if emotionally adjacent.
 
-    5. **Temporal or Comparative Phrases**
+    5. *Temporal or Comparative Phrases*
     - Normalize relative expressions:
         - “A while now” → “for some time”
         - “Not long” → “recent”
         - “Used to…” → “previously, not now”
         - “Better than before” → “improving condition”
 
-    6. **Emotional Tone Mapping (for general use)**
+    6. *Emotional Tone Mapping (for general use)*
     - Recognize emotional expressions such as:
         - “meh”, “could be worse”, “alright I guess” → mild/neutral
         - “rough”, “bad”, “overwhelmed”, “not okay” → struggling
         - “fine”, “good”, “okay” → stable
     - Use short, normalized summaries (e.g., "current_condition": "feeling overwhelmed").
 
-    7. **Unwillingness / Deflection**
+    7. *Unwillingness / Deflection*
     - If the user avoids the question (“I’d rather not say”, “skip this one”), return {{}}, do not fabricate.
 
-    8. **Non-Relevant Responses**
+    8. *Non-Relevant Responses*
     - If unrelated (e.g., greeting, joke, small talk), return {{}}
 
-    9. **Output Format**
+    9. *Output Format*
     - Return a single valid JSON object with only the relevant key if clear data exists.
     - Example:
-        ```json
+        json
         {{ "{current_missing_field}": "some extracted text" }}
-        ```
+        
     - Otherwise:
-        ```json
+        json
         {{}}
-        ```
+        
 
     ---
 
@@ -261,7 +262,7 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
             HumanMessage(content=extraction_prompt)
         ]
         
-        response = llm(prompt)
+        response = llm.invoke(prompt)
         extracted_text = response.content.strip()
         
         # Try to parse JSON from the response
@@ -357,22 +358,22 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
             user_last_message = last_messages[-1]["content"]
     
     generation_prompt = f"""
-    You are **RAISC**, a warm, empathetic mental health assistant who speaks **only English**. 
+    You are *RAISC, a warm, empathetic mental health assistant who speaks **only English*. 
     You engage users in a natural, therapist-like conversation to gently collect details about their mental and physical wellbeing.
 
     ---
 
     ### TASK
-    Generate a natural, conversational **reply** that:
+    Generate a natural, conversational *reply* that:
     1. Feels emotionally intelligent, validating, and non-judgmental.
-    2. Gently guides the user toward answering the next question about **"{missing_field}"**.
+    2. Gently guides the user toward answering the next question about *"{missing_field}"*.
     3. Adapts to the user's last message tone, even if it's vague, deflective, emotional, or conversationally off-topic.
 
     ---
 
     ### FIELD INFORMATION
-    - **Field name:** {missing_field}
-    - **Goal:** {field_description}
+    - *Field name:* {missing_field}
+    - *Goal:* {field_description}
 
     ---
 
@@ -383,18 +384,18 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
 
     ### BEHAVIORAL RULES
 
-    1. **Empathetic First, Functional Second**
-    - Always start by *acknowledging* or *reflecting* the user’s previous message naturally (e.g., “That sounds like it’s been tough” or “I’m glad you shared that”).
-    - Then, smoothly transition into the next question about **{missing_field}**.
+    1. *Empathetic First, Functional Second*
+    - Always start by acknowledging or reflecting the user’s previous message naturally (e.g., “That sounds like it’s been tough” or “I’m glad you shared that”).
+    - Then, smoothly transition into the next question about *{missing_field}*.
 
-    2. **Context Awareness**
+    2. *Context Awareness*
     - If the user's message seems emotional, respond with care before asking the next question.
     - If they sound neutral or factual, keep tone conversational and curious.
-    - If they ask a *counter question* about mental health or something relevant, **briefly answer it** and then return to the main question.
-    - If the response is **completely unrelated**, redirect politely and naturally.
+    - If they ask a counter question about mental health or something relevant, *briefly answer it* and then return to the main question.
+    - If the response is *completely unrelated*, redirect politely and naturally.
 
-    3. **Natural Question Generation**
-    - The question should feel like a continuation of a conversation — **not** a form or survey.
+    3. *Natural Question Generation*
+    - The question should feel like a continuation of a conversation — *not* a form or survey.
     - Avoid robotic or repetitive phrasing.
     - Use phrasing styles like:
         - “Could you tell me a bit about…”  
@@ -403,16 +404,16 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
         - “Would you say…”  
         - “Have you noticed…”  
 
-    4. **Tone & Language**
+    4. *Tone & Language*
     - Keep tone calm, friendly, and professional.
     - Avoid clinical terms unless the user uses them first.
     - Prefer emotionally soft and inclusive phrasing like “sometimes”, “a bit”, “generally”, “these days”.
 
-    5. **Conversation Flow**
-    - If the user gave *some* relevant info but not complete, **gently ask for clarification or elaboration**.
-    - If they already answered this field fully, **acknowledge and move to the next topic** instead of repeating.
+    5. *Conversation Flow*
+    - If the user gave some relevant info but not complete, *gently ask for clarification or elaboration*.
+    - If they already answered this field fully, *acknowledge and move to the next topic* instead of repeating.
 
-    6. **Safety Considerations**
+    6. *Safety Considerations*
     - If the user expresses signs of severe distress, sadness, or self-harm, respond compassionately (e.g., “I’m really sorry you’re feeling this way”) and ask the question softly or offer to pause.
     - Never ignore emotional cues.
 
@@ -438,7 +439,7 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
     ---
 
     Now, generate a short, natural, empathetic message that follows these rules.
-    It should *feel like part of a human conversation*, not a script.
+    It should feel like part of a human conversation, not a script.
     """
     
     try:
@@ -447,7 +448,7 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
             HumanMessage(content=generation_prompt)
         ]
         
-        response = llm(prompt)
+        response = llm.invoke(prompt)
         generated_question = response.content.strip()
         
         # Ensure the response isn't too long
@@ -568,7 +569,7 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
             HumanMessage(content=insight_prompt)
         ]
         
-        response = llm(prompt)
+        response = llm.invoke(prompt)
         raw = (response.content or "").strip()
         
         # Parse JSON response
@@ -636,7 +637,7 @@ def generate_questionnaire_insights(user_data: dict, interpretive: bool = True) 
     - Use the word "Client" instead of "user".
     - One sentence per field.
     - MAXIMUM 12–16 words per sentence.
-    - Use neutral, factual language (e.g., "Client reported...", "Client denied...").
+    - Use neutral, factual language (e.g., "Client reported XYZ", "Client denied ABC").
     - No interpretation, no assumptions, no clinical speculation.
     - No extra details.
     - No adjectives unless stated by client.
@@ -664,7 +665,7 @@ def generate_questionnaire_insights(user_data: dict, interpretive: bool = True) 
             SystemMessage(content="You are a factual clinical summarizer."),
             HumanMessage(content=descriptive_prompt)
         ]
-        response = llm(prompt)
+        response = llm.invoke(prompt)
         raw = (response.content or "").strip()
         json_match = re.search(r"\{.*\}", raw, re.DOTALL)
         if json_match:
@@ -672,7 +673,7 @@ def generate_questionnaire_insights(user_data: dict, interpretive: bool = True) 
         else:
             descriptive = {k: f"The user's {field_descriptions.get(k, k)} indicates: {v}." for k, v in collected_data.items()}
     except Exception as e:
-        print(f"[Questionnaire] Descriptive generation error: {e}")
+        print(f"(Questionnaire) Descriptive generation error: {e}")
         descriptive = {k: f"The user's {field_descriptions.get(k, k)} indicates: {v}." for k, v in collected_data.items()}
 
     if not interpretive:
@@ -706,7 +707,7 @@ def generate_questionnaire_insights(user_data: dict, interpretive: bool = True) 
             SystemMessage(content="You are a reflective clinician who writes brief insights."),
             HumanMessage(content=interpretive_prompt)
         ]
-        resp2 = llm(prompt2)
+        resp2 = llm.invoke(prompt2)
         raw2 = (resp2.content or "").strip()
         json_match2 = re.search(r"\{.*\}", raw2, re.DOTALL)
         if json_match2:
@@ -807,49 +808,79 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
 
         # Enhanced prompt for meaningful summaries and titles
         # here we can enhance, lengthen our summary & titles type stuff
-        prompt_text = (
-            "You are a licensed clinical psychologist writing post-session notes. "
-            "Write in the first-person perspective of the clinician ('Client presented with...', 'Session focused on...', 'Intervention included...')."
-            "Keep tone objective, professional, and consistent with clinical documentation style."
+        # prompt_text = (
+        #     "You are a licensed clinical psychologist writing post-session notes. "
+        #     "Write in the first-person perspective of the clinician ('Client presented with DEF idea', 'Session focused on ABC topic', 'Intervention included XYZ methods')."
+        #     "Keep tone objective, professional, and consistent with clinical documentation style."
 
-            "The conversation may be bilingual (English AND Roman Urdu) and you must output only in English."
-            "Your task is to create a comprehensive summary and a meaningful title that would be useful "
-            "for a mental health professional reviewing the session.\n\n"
+        #     "The conversation may be bilingual (English AND Roman Urdu) and you must output only in English."
+        #     "Your task is to create a comprehensive summary and a meaningful title that would be useful "
+        #     "for a mental health professional reviewing the session.\n\n"
             
-            "GUIDELINES:\n"
-            "1. **Summary**: Write 2-4 complete sentences that capture:\n"
-            "   - Key themes, emotions, and concerns discussed\n"
-            "   - Important details about the user's mental state\n"
-            "   - Any significant patterns, changes, or developments\n"
-            "   - Clinical relevance and psychological insights\n"
-            "   - If a previous summary exists, note how this session relates to it (continuation, new topic, etc.)\n\n"
+        #     "GUIDELINES:\n"
+        #     "1. *Summary*: Write 2-4 complete sentences that capture:\n"
+        #     "   - Key themes, emotions, and concerns discussed\n"
+        #     "   - Important details about the user's mental state\n"
+        #     "   - Any significant patterns, changes, or developments\n"
+        #     "   - Clinical relevance and psychological insights\n"
+        #     "   - If a previous summary exists, note how this session relates to it (continuation, new topic, etc.)\n\n"
             
-            "2. **Title**: Create a descriptive, meaningful title (2-6 words) that:\n"
-            "   - Captures the main focus or theme of the conversation\n"
-            "   - Is specific enough to be informative but concise\n"
-            "   - Uses professional but accessible language\n"
-            "   - Examples: 'Anxiety Management Discussion', 'Exploring Relationship Stress', 'Coping Strategies for Depression'\n"
-            "   - NOT single words like 'Anxiety' or 'Stress' - be descriptive\n\n"
+        #     "2. *Title*: Create a descriptive, meaningful title (2-6 words) that:\n"
+        #     "   - Captures the main focus or theme of the conversation\n"
+        #     "   - Is specific enough to be informative but concise\n"
+        #     "   - Uses professional but accessible language\n"
+        #     "   - Examples: 'Anxiety Management Discussion', 'Exploring Relationship Stress', 'Coping Strategies for Depression'\n"
+        #     "   - NOT single words like 'Anxiety' or 'Stress' - be descriptive\n\n"
 
-            "OUTPUT STRICTLY in JSON format exactly like:\n"
-            "{\n"
-            "  \"Summary\": \"The user discussed experiencing persistent anxiety over the past few weeks, particularly "
-            "related to work deadlines and social interactions. They expressed feeling overwhelmed and having difficulty "
-            "sleeping. The conversation explored coping mechanisms and the user showed interest in learning relaxation techniques.\",\n"
-            "  \"Title\": \"Anxiety Management and Coping Strategies\"\n"
-            "}"
-        )
+        #     "OUTPUT STRICTLY in JSON format exactly like:\n"
+        #     "{\n"
+        #     "  \"Summary\": \"The user discussed experiencing persistent anxiety over the past few weeks, particularly "
+        #     "related to work deadlines and social interactions. They expressed feeling overwhelmed and having difficulty "
+        #     "sleeping. The conversation explored coping mechanisms and the user showed interest in learning relaxation techniques.\",\n"
+        #     "  \"Title\": \"Anxiety Management and Coping Strategies\"\n"
+        #     "}"
+        # )
+
+        prompt_text = """
+        You are a licensed clinical psychologist writing post-session notes. 
+        Write in the first-person perspective of the clinician 
+        ('Client presented with DEF idea', 'Session focused on ABC topic', 
+        'Intervention included XYZ methods').
+
+        Keep tone objective, professional, and consistent with clinical documentation style.
+
+        The conversation may be bilingual (English AND Roman Urdu). Output only in English.
+
+        GUIDELINES:
+        1. Summary: Write 2–4 complete sentences describing:
+        - Key themes, emotions, concerns
+        - Mental state indicators
+        - Notable patterns or changes
+        - Connection to previous summary if one exists
+
+        2. Title: 2–6 words, descriptive, clinically useful.
+        Examples:
+        - Anxiety Management Discussion
+        - Exploring Relationship Stress
+        - Coping Strategies for Low Mood
+
+        REQUIRED OUTPUT FORMAT:
+        {
+        "Summary": "Example summary here.",
+        "Title": "Example Title"
+        }
+        """
 
         conversation_context = f"User messages: {conversation_text}"
         if assistant_context:
             conversation_context += f"\n\nRecent therapist responses (for context): {assistant_context}"
 
-        prompt = (
+        prompt = [
             SystemMessage(content=prompt_text),
             HumanMessage(content=f"Previous session summary: {prev_sum_str}\n\nCurrent session conversation:\n{conversation_context}")
-        )
+        ]
 
-        summary_output = llm(prompt)
+        summary_output = llm.invoke(prompt)
         raw = (summary_output.content or "").strip()
 
         # Parse JSON response safely
@@ -896,7 +927,10 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
         "summary_title": summary_title,
         "summary": summary_text,
         "emotional_summary": emotional_summary,
-        "timestamp": timestamp
+        "timestamp": timestamp,
+        "session_start_msg": session_start_index,
+        "session_end_msg": len(chat_history) - 1,
+
     }
 
 # Main chat processing logic with bilingual support
@@ -949,12 +983,14 @@ async def process_chat(session_key: str, user_message: str):
             summary_tag = summary_data["summary_title"]
             summary_text = summary_data["summary"]
             emotional_summary = summary_data["emotional_summary"]
-
+            timestamp = datetime.now().isoformat()
             user_data["past_summaries"].append({
                 "summary_title": summary_tag,
                 "summary": summary_text,
                 "emotional_summary": emotional_summary,
-                "timestamp": summary_data["timestamp"]
+                "timestamp": timestamp,
+                "session_start_msg": session_start_index,
+                "session_end_msg": len(chat_history) - 1,
             })
             user_data["last_summarized_index"] = len(chat_history)
             user_data["session_start_index"] = len(chat_history)
@@ -963,7 +999,7 @@ async def process_chat(session_key: str, user_message: str):
             # Save user data with the new summary (but don't save chat history since we didn't modify it)
             store_user_data(session_key, user_data)
             
-            print(f"[BACKEND] Auto-generated summary stored silently: {summary_text[:100]}...")
+            print(f"[BACKEND] Auto-generated summary stored silently: {summary_text[:100]}")
 
     # Analyze sentiment of the user's message
     sentiment = analyze_sentiment(user_message)
@@ -1026,13 +1062,19 @@ async def process_chat(session_key: str, user_message: str):
         summary_tag = summary_data["summary_title"]
         summary_text = summary_data["summary"]
         emotional_summary = summary_data["emotional_summary"]
-        
+        timestamp = datetime.now().isoformat()
+
         user_data["past_summaries"].append({
             "summary_title": summary_tag,
             "summary": summary_text,
             "emotional_summary": emotional_summary,
-            "timestamp": summary_data["timestamp"]
+            "timestamp": timestamp,
+            "session_start_msg": session_start_index,
+            "session_end_msg": len(chat_history) - 1
         })
+        print(f"*session_start_index: {session_start_index}, session_end_index: {len(chat_history) - 1}*")
+
+
         user_data["last_summarized_index"] = len(chat_history)
         user_data["session_start_index"] = len(chat_history)
         user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
@@ -1047,7 +1089,7 @@ async def process_chat(session_key: str, user_message: str):
         save_chat_history(session_key, chat_history)
         store_user_data(session_key, user_data)
         
-        print(f"[BACKEND] Session end summary stored silently: {summary_text[:100]}...")
+        print(f"[BACKEND] Session end summary stored silently: {summary_text[:100]}")
         return {"response": goodbye_msg}
     
     # Handle first-time users with language-appropriate greeting
