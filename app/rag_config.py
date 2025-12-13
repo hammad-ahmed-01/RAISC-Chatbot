@@ -1,13 +1,20 @@
 import os
 from langchain_groq import ChatGroq
-# from langchain.chains import create_history_aware_retriever, create_retrieval_chain
-# from langchain.chains.combine_documents import create_stuff_documents_chain
-# from langchain_chroma import Chroma
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-# from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from app.config import MODEL_NAME
 from dotenv import load_dotenv
 load_dotenv()
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+PERSISTENT_DIRECTORY = os.path.join(current_dir, "../db/chroma_db_with_metadata")
+# Initialize Embeddings and VectorStore
+embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME,   encode_kwargs={'normalize_embeddings': True} )
+db = Chroma(persist_directory=PERSISTENT_DIRECTORY, embedding_function=embeddings)
+retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 1})
 
 # ENGLISH LLM and RAG Chain
 english_llm = ChatGroq(
@@ -76,6 +83,7 @@ english_therapeutic_system_prompt = (
     {context}'''
 )
 
+
 # PAKISTANI ROMAN URDU THERAPEUTIC SYSTEM PROMPT
 pakistani_therapeutic_system_prompt = (
     '''You are a compassionate mental health assistant providing therapeutic support and guidance.
@@ -143,8 +151,35 @@ pakistani_qa_prompt = ChatPromptTemplate.from_messages(
         ("human", "{input}"),
     ]
 )
+# Create history-aware retriever
+english_history_aware_retriever = create_history_aware_retriever(
+    english_llm,
+    retriever,
+    contextualize_q_prompt
+)
+english_question_answer_chain = create_stuff_documents_chain(
+    english_llm,
+    english_qa_prompt
+)
+english_rag_chain = create_retrieval_chain(
+    english_history_aware_retriever,
+    english_question_answer_chain
+)
 
-pakistani_rag_chain = pakistani_qa_prompt | pakistani_llm
+pakistani_history_aware_retriever = create_history_aware_retriever(
+    pakistani_llm,
+    retriever,
+    contextualize_q_prompt
+)
+pakistani_question_answer_chain = create_stuff_documents_chain(
+    pakistani_llm,
+    pakistani_qa_prompt
+)
+
+pakistani_rag_chain = create_retrieval_chain(
+    pakistani_history_aware_retriever,
+    pakistani_question_answer_chain
+)
 
 # BACKWARDS COMPATIBILITY: Keep the old variable name for existing code
 rag_chain = english_rag_chain

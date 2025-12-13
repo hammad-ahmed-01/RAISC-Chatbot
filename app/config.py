@@ -16,3 +16,4 @@ DJANGO_BACKEND_URL =  "http://localhost:8000"
 
 # Questionnaire Cache Configuration
 QUESTIONNAIRE_CACHE_TTL = 600  
+PERSISTENT_DIRECTORY = os.path.join(current_dir, "../db/chroma_db_with_metadata")
