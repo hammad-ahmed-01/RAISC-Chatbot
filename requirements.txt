@@ -10,14 +10,11 @@ langchain-openai
 langchain-chroma
 langchain-groq
 langchain-huggingface
-
 sentence-transformers
 chromadb
-
 nltk
 openai
 python-dotenv
-
 livekit
 livekit-agents
 livekit-plugins-groq

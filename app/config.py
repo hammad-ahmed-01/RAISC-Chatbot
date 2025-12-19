@@ -11,4 +11,3 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 MODEL_NAME = "all-MiniLM-L6-v2"
 #worth testing
 # MODEL_NAME = "nomic-embed-text-v1.5"
-GROQ_API_KEY = "REMOVED_GROQ_API_KEY"

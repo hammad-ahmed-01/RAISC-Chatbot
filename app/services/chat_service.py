@@ -3,31 +3,37 @@ import nltk
 import re
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.services.firestore_service import get_chat_history, save_chat_history
 from app.services.user_service import get_user_data, store_user_data, get_doctor_summary
 from app.services.rag_service import process_user_message
 from app.services.language_service import (
+    detect_language,
     get_greeting_message, 
     get_completion_message,
     get_risk_intervention_message,
     get_session_end_message,
-    get_error_message,
-    get_language_context_for_prompts
+    get_error_message
 )
-from app.config import GROQ_API_KEY
+from app.services.smart_questionnaire import (
+    run_questionnaire_turn,
+    QUESTION_FLOW,
+    FIELD_DESCRIPTIONS,   # <-- ADD THIS
+)
+from app.services.relevance import relevance_score
+import os
 import json
-import re
+from dotenv import load_dotenv
 
-nltk.download('vader_lexicon')
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Initialize the VADER analyzer and LLM once
 analyzer = SentimentIntensityAnalyzer()
-llm = ChatGroq(model="openai/gpt-oss-20b", groq_api_key=GROQ_API_KEY, temperature=0)
+llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY, temperature=1)
 
 # Inactivity threshold
-INACTIVITY_THRESHOLD = timedelta(minutes=1)
+INACTIVITY_THRESHOLD = timedelta(minutes=2)
 
 # Define the information we need to collect
 REQUIRED_INFORMATION = {
@@ -43,7 +49,6 @@ REQUIRED_INFORMATION = {
         "required": True,
         "description": "how long has the user been feeling like this"
     },
-
     "mental_health_history": {
         "collected": False, 
         "value": None, 
@@ -82,6 +87,19 @@ CONTROLLED_TAGS = [
     # Coping
     "Coping Skills", "Exercise", "Social Support", "Healthy Habits", "Mindfulness"
 ]
+
+def classify_user_message_intent(msg):
+    msg = msg.lower()
+
+    acknowledgement = ["haan", "theek hai", "ok", "hmm", "acha", "sahi", "theek", "okay", "okayy", "okayyy", "sai", "k"]
+    if any(word in msg for word in acknowledgement):
+        return "ack"
+
+    positive_emotions = ["fit", "fit faat", "theek", "acha", "mast", "fine", "good", "okay", "alright", "great", "fabulous", "fantastic"]
+    if any(word in msg for word in positive_emotions):
+        return "positive"
+
+    return "normal"
 
 def extract_tags_from_taxonomy(conversation_text: str, max_tags: int = 5):
     """
@@ -167,10 +185,29 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
     extraction_prompt = f"""
     You are a therapeutic context extractor. Your goal is to identify *relevant psychological or behavioral information*
     from a casual, conversational message — as a human therapist would understand it.
+    
+    **LANGUAGE CONTEXT**: The user would either be speaking in ENGLISH or ROMAN URDU.
+    Understand their message in the appropriate language, but ALWAYS extract and output information in ENGLISH only for backend consistency.
 
     User message:
     "{user_message}"
 
+    POSITIVE EMOTION RULE:
+    - If user says “theek hoon”, “fit”, “mast”, “achi feeling”, “I'm good”, “I'm fine”, “mai fit faat hoon”
+    → treat it as valid current_condition = “feeling good / stable / positive”
+    - Do NOT assume distress if message is positive.
+
+    Recognize Roman Urdu positive expressions:
+    fit, faat, fit faat, theek, acha, mast, chill, set, okay, thik, bht acha, zbrdst
+
+    If the user's emotional state is positive:
+    - DO NOT use coping language (“cope”, “manage”, “struggling”).
+    - Ask neutral wellbeing questions, e.g.,
+    “Wah, Ye acchi feeling aap ko kab se mehsoos ho rahi hai?”
+    “achi baat hai, aesa kab say mehsoos horha hai?”
+
+    If user expresses positive emotion, avoid distress or struggle framing.
+    Responses should reflect wellbeing, not assume difficulty.
     ---
 
     ### OBJECTIVE
@@ -222,7 +259,16 @@ def extract_all_information_from_message(user_message: str, current_missing_fiel
     8. *Non-Relevant Responses*
     - If unrelated (e.g., greeting, joke, small talk), return {{}}
 
-    9. *Output Format*
+    9. POSITIVE EMOTIONS (IMPORTANT)
+    - If the user says phrases like:
+        "theek hoon", "mai theek", "fit hoon", "fine", "I'm okay", "acha mehsoos kar raha hoon",
+        or any Roman Urdu equivalent:
+        → consider this a VALID answer for "current_condition".
+    - Do NOT assume distress when user expresses positive mood.
+    - Treat responses like:
+        "mai fit faat hoon" → "feeling good / stable / positive"
+
+    10. *Output Format*
     - Return a single valid JSON object with only the relevant key if clear data exists.
     - Example:
         json
@@ -344,21 +390,61 @@ def get_missing_information_list(user_data: dict) -> list:
     
     return missing
 
-def generate_dynamic_question(missing_field: str, field_description: str, chat_history: list) -> str:
+def generate_dynamic_question(missing_field: str, field_description: str, chat_history: list, current_language: str) -> str:
     """
     Generate a contextual question for a specific missing field using LLM
     No premade prompts - fully dynamic based on field name and description
     """
-    
-    # Get the user's last message for context
+
+    # Detect if this is the very first questionnaire question
+    is_first_question = len(chat_history) <= 2
+
+    # --- FIX: define user_last_message BEFORE using it ---
     user_last_message = ""
     if chat_history:
         last_messages = [msg for msg in chat_history[-3:] if msg.get("role") == "user"]
         if last_messages:
             user_last_message = last_messages[-1]["content"]
+
+    intent = classify_user_message_intent(user_last_message)
+
+    # If it's the first question, ignore acknowledgement/emotional reflection
+    if is_first_question:
+        reflection_prefix = ""
+    else:
+        if intent == "ack":
+            reflection_prefix = ""  # no emotional reflection for simple "theek hai"
+        elif intent == "positive":
+            reflection_prefix = "Acha hai ke aap aesa mehsoos kar rahe hain."
+        else:
+            reflection_prefix = "Main samajh sakta hoon."
     
     generation_prompt = f"""
-    You are *RAISC, a warm, empathetic mental health assistant who speaks **only English*. 
+    You are *RAISC, a warm, empathetic mental health assistant. 
+    
+    **LANGUAGE INSTRUCTION**: Respond in whichever language the user is speaking in which is: "{current_language}"
+    {"Use authentic Roman Urdu vocabulary, expressions like 'aap', 'main', 'kya', 'kaise', etc. Be respectful and culturally appropriate. Keep responses to 2-3 lines"}
+
+    ### LANGUAGE PRODUCTION RULE (IMPORTANT)
+
+    To ensure correct Roman Urdu grammar:
+
+    1. First formulate your response INTERNALLY in proper Urdu script (not Roman).
+    - Use natural Urdu grammar and phrasing.
+    - Do NOT output this internal Urdu sentence.
+
+    2. Then transliterate that Urdu sentence into Roman Urdu, using:
+    - Standard Urdu word order (SOV)
+    - Correct, consistent roman spellings:
+        mehsoos, behtar, pareshani, fikar, thora/thori, acha/achha, zyada, kam, waja, wajeh, etc.
+
+    3. Output ONLY the final Roman Urdu sentence.
+    - Do NOT show Urdu script.
+    - Do NOT mention “transliteration” in the output.
+    - Do NOT mix English verbs with Urdu grammar unless unavoidable.
+
+    This rule MUST be followed for every Roman Urdu response.
+    
     You engage users in a natural, therapist-like conversation to gently collect details about their mental and physical wellbeing.
 
     ---
@@ -366,9 +452,9 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
     ### TASK
     Generate a natural, conversational *reply* that:
     1. Feels emotionally intelligent, validating, and non-judgmental.
-    2. Gently guides the user toward answering the next question about *"{missing_field}"*.
+    2. Gently guides the user toward answering the next question about "{missing_field}" (do NOT say the variable name.).
     3. Adapts to the user's last message tone, even if it's vague, deflective, emotional, or conversationally off-topic.
-
+    4. NEVER mention internal variable names like "current_condition", "duration", "mental_health_history" or "physical_activity". Use natural language only.
     ---
 
     ### FIELD INFORMATION
@@ -385,7 +471,10 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
     ### BEHAVIORAL RULES
 
     1. *Empathetic First, Functional Second*
-    - Always start by acknowledging or reflecting the user’s previous message naturally (e.g., “That sounds like it’s been tough” or “I’m glad you shared that”).
+    - Start by briefly acknowledging the user's message.
+    - The acknowledgement MUST match the emotional tone of what the user said.
+    - If the user expresses positive or neutral feelings, do NOT imply struggle or distress.
+    - Only reflect difficulty when the user actually mentions something negative.
     - Then, smoothly transition into the next question about *{missing_field}*.
 
     2. *Context Awareness*
@@ -428,7 +517,7 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
     → Response: "That’s okay, a lot of people’s routines change over time. How often do you find yourself doing any physical activity lately?"
 
     User message: "Hmm, do you think anxiety can cause this?"
-    → Response: "It can sometimes, yes — our bodies and minds are closely connected. Speaking of that, how would you describe your current condition right now?"
+    → Response: "It can sometimes, yes — our bodies and minds are closely connected. Speaking of that, how would you describe your feelings at this moment right now?"
 
     User message: "Can we skip this question?"
     → Response: "Of course, that’s totally fine. We can come back to it later if you’d like."
@@ -465,7 +554,7 @@ def generate_dynamic_question(missing_field: str, field_description: str, chat_h
         # Simple fallback
         return f"Could you tell me about {field_description}?"
 
-def generate_information_gathering_response(chat_history: list, missing_info: list) -> str:
+def generate_information_gathering_response(chat_history: list, missing_info: list, current_language: str) -> str:
     """Generate a warm, conversational response asking for missing information
     Uses LLM to dynamically generate questions based on REQUIRED_INFORMATION fields"""
     
@@ -495,10 +584,10 @@ def generate_information_gathering_response(chat_history: list, missing_info: li
     field_description = field_info.get("description", next_info_to_ask)
     
     # Generate dynamic question using LLM
-    return generate_dynamic_question(next_info_to_ask, field_description, chat_history)
+    return generate_dynamic_question(next_info_to_ask, field_description, chat_history, current_language)
 
 # REMOVE THIS COMMENTED OUT FUNC 
-# def generate_questionnaire_insights(user_data: dict) -> dict:
+def generate_questionnaire_insights(user_data: dict) -> dict:
     """Generate meaningful insights from questionnaire results in complete sentences"""
     insights = {}
     info_needed = user_data.get("information_needed", {})
@@ -806,40 +895,6 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
         assistant_context = " ".join(assistant_messages[-3:]).strip() if assistant_messages else ""
         prev_sum_str = previous_summary if previous_summary else "None"
 
-        # Enhanced prompt for meaningful summaries and titles
-        # here we can enhance, lengthen our summary & titles type stuff
-        # prompt_text = (
-        #     "You are a licensed clinical psychologist writing post-session notes. "
-        #     "Write in the first-person perspective of the clinician ('Client presented with DEF idea', 'Session focused on ABC topic', 'Intervention included XYZ methods')."
-        #     "Keep tone objective, professional, and consistent with clinical documentation style."
-
-        #     "The conversation may be bilingual (English AND Roman Urdu) and you must output only in English."
-        #     "Your task is to create a comprehensive summary and a meaningful title that would be useful "
-        #     "for a mental health professional reviewing the session.\n\n"
-            
-        #     "GUIDELINES:\n"
-        #     "1. *Summary*: Write 2-4 complete sentences that capture:\n"
-        #     "   - Key themes, emotions, and concerns discussed\n"
-        #     "   - Important details about the user's mental state\n"
-        #     "   - Any significant patterns, changes, or developments\n"
-        #     "   - Clinical relevance and psychological insights\n"
-        #     "   - If a previous summary exists, note how this session relates to it (continuation, new topic, etc.)\n\n"
-            
-        #     "2. *Title*: Create a descriptive, meaningful title (2-6 words) that:\n"
-        #     "   - Captures the main focus or theme of the conversation\n"
-        #     "   - Is specific enough to be informative but concise\n"
-        #     "   - Uses professional but accessible language\n"
-        #     "   - Examples: 'Anxiety Management Discussion', 'Exploring Relationship Stress', 'Coping Strategies for Depression'\n"
-        #     "   - NOT single words like 'Anxiety' or 'Stress' - be descriptive\n\n"
-
-        #     "OUTPUT STRICTLY in JSON format exactly like:\n"
-        #     "{\n"
-        #     "  \"Summary\": \"The user discussed experiencing persistent anxiety over the past few weeks, particularly "
-        #     "related to work deadlines and social interactions. They expressed feeling overwhelmed and having difficulty "
-        #     "sleeping. The conversation explored coping mechanisms and the user showed interest in learning relaxation techniques.\",\n"
-        #     "  \"Title\": \"Anxiety Management and Coping Strategies\"\n"
-        #     "}"
-        # )
 
         prompt_text = """
         You are a licensed clinical psychologist writing post-session notes. 
@@ -849,13 +904,14 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
 
         Keep tone objective, professional, and consistent with clinical documentation style.
 
-        The conversation may be bilingual (English AND Roman Urdu). Output only in English.
+        The conversation may be bilingual (English AND Roman Urdu). Output in ENGLISH only.
 
         GUIDELINES:
         1. Summary: Write 2–4 complete sentences describing:
         - Key themes, emotions, concerns
         - Mental state indicators
         - Notable patterns or changes
+        - Clinical relevance and psychological insights
         - Connection to previous summary if one exists
 
         2. Title: 2–6 words, descriptive, clinically useful.
@@ -933,214 +989,281 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
 
     }
 
-# Main chat processing logic with bilingual support
 async def process_chat(session_key: str, user_message: str):
-    # Detect language from user message
-    
-    # Fetch user data and chat history with proper type checking
-    user_data_raw = get_user_data(session_key)
-    
-    # Ensure user_data is a dictionary
-    if isinstance(user_data_raw, dict):
-        user_data = user_data_raw
-    else:
-        # If get_user_data returns None, empty string, or any non-dict, create new dict
-        user_data = {}
-    
+    # ------------------------------------------------------------
+    # 1) Detect language (NEW: returns dict with normalized_text)
+    # ------------------------------------------------------------
+    lang_info = detect_language(user_message)
+    current_language = lang_info["language"]          # "english" or "roman_urdu"
+    normalized_msg = lang_info["normalized_text"]     # always English for embeddings
+
+    print(f"[LANGUAGE] Detected: {current_language} | Normalized: {normalized_msg[:100]}")
+
+
+    # ------------------------------------------------------------
+    # 2) Load user data & history safely
+    # ------------------------------------------------------------
+    raw_user_data = get_user_data(session_key)
+    user_data = raw_user_data if isinstance(raw_user_data, dict) else {}
+
     chat_history = get_chat_history(session_key) or []
     doctor_summary = get_doctor_summary(session_key)
+    user_data["doctor_summary"] = doctor_summary
+    user_data["current_language"] = current_language
 
-    # Store user's language preference
-
-    # Initialize information tracking
+    # ------------------------------------------------------------
+    # 3) Initialize information tracking
+    # ------------------------------------------------------------
     user_data = initialize_information_tracking(user_data)
 
-    # Initialize other fields in user_data if not present
-    user_data["doctor_summary"] = doctor_summary
-    if "past_summaries" not in user_data:
-        user_data["past_summaries"] = []
-    if "last_summarized_index" not in user_data:
-        user_data["last_summarized_index"] = 0
-    if "session_start_index" not in user_data:
-        user_data["session_start_index"] = 0
-    if "session_agg_sentiment" not in user_data:
-        user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
+    # ------------------------------------------------------------
+    # 4) Initialize smart questionnaire state
+    # ------------------------------------------------------------
+    if "questionnaire" not in user_data:
+        missing_info = get_missing_information_list(user_data)
+        start_field = missing_info[0] if missing_info else "current_condition"
 
-    # Get current time
-    current_time = datetime.now()
+        user_data["questionnaire"] = {
+            "current_field": start_field,
+            "answers": {},
+            "completed": False,
+            "first_question_pending": True,
+        }
 
-    # Check for inactivity and auto-generate summary if detected
-    last_interaction = user_data.get("last_interaction")
-    if last_interaction:
-        last_interaction_time = datetime.fromisoformat(last_interaction)
-        time_since_last = current_time - last_interaction_time
-        if time_since_last >= INACTIVITY_THRESHOLD and chat_history:
-            session_start_index = user_data["session_start_index"]
-            previous_summary = user_data["past_summaries"][-1]["summary"] if user_data.get("past_summaries") else None
-            
-            # ALWAYS generate summary in English for backend storage (not user's language)
-            summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, "english")
-            summary_tag = summary_data["summary_title"]
-            summary_text = summary_data["summary"]
-            emotional_summary = summary_data["emotional_summary"]
-            timestamp = datetime.now().isoformat()
-            user_data["past_summaries"].append({
-                "summary_title": summary_tag,
-                "summary": summary_text,
-                "emotional_summary": emotional_summary,
-                "timestamp": timestamp,
-                "session_start_msg": session_start_index,
-                "session_end_msg": len(chat_history) - 1,
-            })
-            user_data["last_summarized_index"] = len(chat_history)
-            user_data["session_start_index"] = len(chat_history)
-            user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
-                 
-            # Save user data with the new summary (but don't save chat history since we didn't modify it)
-            store_user_data(session_key, user_data)
-            
-            print(f"[BACKEND] Auto-generated summary stored silently: {summary_text[:100]}")
+    questionnaire = user_data["questionnaire"]
+    user_data.setdefault("questionnaire_completed", questionnaire.get("completed", False))
 
-    # Analyze sentiment of the user's message
-    sentiment = analyze_sentiment(user_message)
-    chat_history.append({"role": "user", "content": user_message, "sentiment": sentiment})
+    # ------------------------------------------------------------
+    # 5) Initialize other session fields
+    # ------------------------------------------------------------
+    user_data.setdefault("past_summaries", [])
+    user_data.setdefault("last_summarized_index", 0)
+    user_data.setdefault("session_start_index", 0)
+    user_data.setdefault("session_agg_sentiment", reset_sentiment_aggregate())
 
-    missing_info = get_missing_information_list(user_data)
-    current_missing_field = missing_info[0] if missing_info else None
+    # ------------------------------------------------------------
+    # EARLY EXIT: If user says goodbye → end session gracefully
+    # ------------------------------------------------------------
 
-    # Only extract if there's a missing field
-    if current_missing_field:
-        extracted_info = extract_all_information_from_message(user_message, current_missing_field)
-        user_data = update_collected_information(user_data, extracted_info)
-    else:
-        extracted_info = {}
-    user_data = update_collected_information(user_data, extracted_info)
-
-    # Update questionnaire_completed status
-    was_completed_before = user_data.get("questionnaire_completed", False)
-    user_data["questionnaire_completed"] = is_questionnaire_complete(user_data)
-    just_completed = not was_completed_before and user_data["questionnaire_completed"]
-    
-    # Generate and store insights when questionnaire is completed
-    if just_completed:
-        insights = generate_questionnaire_insights(user_data)
-        if insights:
-            user_data["questionnaire_insights"] = insights
-            print(f"Generated questionnaire insights: {insights}")
-
-    # Update session-specific sentiment aggregate
-    session_agg_sentiment = user_data["session_agg_sentiment"]
-    new_score = sentiment.get("compound", 0.0)
-    session_agg_sentiment = update_sentiment_aggregate(session_agg_sentiment, new_score)
-    user_data["session_agg_sentiment"] = session_agg_sentiment
-    
-    # Update last interaction time
-    user_data["last_interaction"] = current_time.isoformat()
-    store_user_data(session_key, user_data)
-
-    # Check if user explicitly ends the session (language-aware) 
-    end_session_phrases = ["end session", "goodbye", "exit", "bye", "end"]
-
-    user_message_lower = user_message.lower()
-    end_session_patterns = [
-        r"\bend session\b",
+    GOODBYE_PATTERNS = [
         r"\bbye\b",
         r"\bgoodbye\b",
+        r"\bsee you\b",
         r"\bexit\b",
-        r"^end$"  # Only match "end" if it's the entire message not substring
+        r"\bend session\b",
+        r"\bquit\b",
+        r"\bfinish\b",
+        r"\bthat's all\b",
+        r"\bi am done\b",
+        r"\bi'm done\b",
+        r"\bok bye\b",
+        r"\bkhuda hafiz\b",
+        r"\ballah hafiz\b",
+        r"\bhafiz\b",
+        r"\balvida\b"
     ]
 
     user_message_lower = user_message.lower()
-    is_ending_session = any(re.search(pattern, user_message_lower) for pattern in end_session_patterns)
-    
-    if is_ending_session:
-        session_start_index = user_data["session_start_index"]
-        previous_summary = user_data["past_summaries"][-1]["summary"] if user_data.get("past_summaries") else None
-        
-        # ALWAYS generate summary in English for backend storage
-        summary_data = generate_conversation_summary(chat_history, session_start_index, previous_summary, "english")
-        summary_tag = summary_data["summary_title"]
-        summary_text = summary_data["summary"]
-        emotional_summary = summary_data["emotional_summary"]
-        timestamp = datetime.now().isoformat()
+    is_goodbye = any(re.search(pattern, user_message_lower) for pattern in GOODBYE_PATTERNS)
 
+    if is_goodbye:
+        # Generate session summary before ending
+        session_start_index = user_data.get("session_start_index", 0)
+        previous_summary = (
+            user_data["past_summaries"][-1]["summary"]
+            if user_data.get("past_summaries")
+            else None
+        )
+
+        summary_data = generate_conversation_summary(
+            chat_history,
+            session_start_index,
+            previous_summary,
+            language="english"   # summaries stored in English only
+        )
+
+        # Save summary to user_data
         user_data["past_summaries"].append({
-            "summary_title": summary_tag,
-            "summary": summary_text,
-            "emotional_summary": emotional_summary,
-            "timestamp": timestamp,
-            "session_start_msg": session_start_index,
-            "session_end_msg": len(chat_history) - 1
+            "summary_title": summary_data["summary_title"],
+            "summary": summary_data["summary"],
+            "emotional_summary": summary_data["emotional_summary"],
+            "timestamp": summary_data["timestamp"],
+            "session_start_msg": summary_data["session_start_msg"],
+            "session_end_msg": summary_data["session_end_msg"]
         })
-        print(f"*session_start_index: {session_start_index}, session_end_index: {len(chat_history) - 1}*")
 
-
+        # Reset session start for next time
         user_data["last_summarized_index"] = len(chat_history)
         user_data["session_start_index"] = len(chat_history)
         user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
-        
-        # Provide a simple goodbye message in user's language instead of showing summary
-        goodbye_msg = "Thank you for chatting with me today. Take care and feel free to return anytime!"
-        
-        chat_history.append({
-            "role": "assistant",
-            "content": goodbye_msg,
-        })
-        save_chat_history(session_key, chat_history)
-        store_user_data(session_key, user_data)
-        
-        print(f"[BACKEND] Session end summary stored silently: {summary_text[:100]}")
-        return {"response": goodbye_msg}
-    
-    # Handle first-time users with language-appropriate greeting
-    if len(chat_history) == 1:
-        greeting = get_greeting_message()
-        user_data["session_start_index"] = 1
-        chat_history.append({"role": "assistant", "content": greeting})
-        save_chat_history(session_key, chat_history)
-        store_user_data(session_key, user_data)
-        return {"response": greeting}
 
-    # Separate information gathering vs therapeutic responses with language awareness
-    if not user_data["questionnaire_completed"]:
-        # INFORMATION GATHERING MODE - Dynamic LLM-generated questions
-        print("INFORMATION GATHERING MODE: Using dynamic LLM-generated questions")
-        missing_info = get_missing_information_list(user_data)
-        ai_response = generate_information_gathering_response(chat_history, missing_info)
-        
-    else:
-        # THERAPEUTIC MODE - Full RAG processing with language awareness
-        print("THERAPEUTIC MODE: Using full RAG processing with language awareness")
-        
-        # Check if questionnaire was just completed to add a transition message
-        transition_prefix = ""
-        if just_completed:
-            # Get collected name for personalization
-            name = ""
-            info_needed = user_data.get("information_needed", {})
-            if "name" in info_needed and info_needed["name"].get("collected", False):
-                name = info_needed["name"].get("value", "")
-            
-            transition_prefix = get_completion_message(name)
-            print("Questionnaire just completed - transitioning to therapeutic mode")
-        
-        # Create context with collected information
-        collected_info_context = create_collected_information_context(user_data)
-        
-        # Process message through RAG with collected information context and language
-        ai_response = process_user_message(
-            user_message, 
-            chat_history, 
-            user_data, 
-            max_summaries=3, 
-            max_doctor_summaries=2,
-            additional_context=collected_info_context
+        # Goodbye message translation
+        goodbye_msg = "Thank you for talking with me today. Please take care, and feel free to return anytime!"
+
+        if current_language == "roman_urdu":
+            # Translate goodbye to Roman Urdu
+            translate_prompt = [
+                SystemMessage(content="Translate the following English sentence into Pakistani Roman Urdu:"),
+                HumanMessage(content=goodbye_msg)
+            ]
+            try:
+                translated = llm.invoke(translate_prompt).content.strip()
+                goodbye_msg = translated
+            except:
+                pass  # fallback: use English goodbye
+
+        # Add assistant message and save
+        chat_history.append({"role": "assistant", "content": goodbye_msg})
+        save_chat_history(session_key, chat_history)
+        store_user_data(session_key, user_data)
+
+        print("[BACKEND] Conversation ended by user request.")
+        # Safely write user_data to a readable file
+        debug_path = os.path.join(os.getcwd(), "debug_user_data.json")
+
+        with open(debug_path, "w", encoding="utf-8") as f:
+            json.dump(user_data, f, indent=4, ensure_ascii=False)
+
+        print(f"[DEBUG] user_data dumped to {debug_path}")
+        return {"response": goodbye_msg}
+
+    # ------------------------------------------------------------
+    # 6) Auto-summary if user was inactive
+    # ------------------------------------------------------------
+    current_time = datetime.now()
+    last_interaction = user_data.get("last_interaction")
+
+    if last_interaction:
+        try:
+            last_time = datetime.fromisoformat(last_interaction)
+            if current_time - last_time >= INACTIVITY_THRESHOLD and chat_history:
+                session_start = user_data["session_start_index"]
+                prev_summary = (
+                    user_data["past_summaries"][-1]["summary"]
+                    if user_data["past_summaries"]
+                    else None
+                )
+
+                summary_data = generate_conversation_summary(
+                    chat_history,
+                    session_start,
+                    prev_summary,
+                    "english"
+                )
+
+                ts = datetime.now().isoformat()
+                user_data["past_summaries"].append({
+                    "summary_title": summary_data["summary_title"],
+                    "summary": summary_data["summary"],
+                    "emotional_summary": summary_data["emotional_summary"],
+                    "timestamp": ts,
+                    "session_start_msg": session_start,
+                    "session_end_msg": len(chat_history) - 1,
+                })
+
+                user_data["last_summarized_index"] = len(chat_history)
+                user_data["session_start_index"] = len(chat_history)
+                user_data["session_agg_sentiment"] = reset_sentiment_aggregate()
+                print(f"user data: {user_data}")
+        except Exception as e:
+            print(f"[WARN] Failed inactivity summary: {e}")
+
+    # ------------------------------------------------------------
+    # 7) Analyze sentiment of current user message
+    # ------------------------------------------------------------
+    sentiment = analyze_sentiment(user_message)
+    chat_history.append({"role": "user", "content": user_message, "sentiment": sentiment})
+
+    # ============================================================
+    #                SMART QUESTIONNAIRE MODE (UPDATED)
+    # ============================================================
+    questionnaire = user_data.get("questionnaire", {})
+    if not questionnaire.get("completed", False):
+
+        print("[MODE] QUESTIONNAIRE")
+
+        # --------------------------------------------------------
+        # A) Determine expected question text for relevance scoring
+        # --------------------------------------------------------
+        current_field = questionnaire["current_field"]
+        expected_question = FIELD_DESCRIPTIONS[current_field]
+
+        # --------------------------------------------------------
+        # B) Compute relevance using normalized English text
+        # --------------------------------------------------------
+        relevance = relevance_score(expected_question, normalized_msg)
+        relevance_label = relevance["final_label"]  # ON_TOPIC or OFF_TOPIC
+        print(f"[RELEVANCE] {relevance_label} | sim={relevance['embedding_similarity']}")
+
+        # --------------------------------------------------------
+        # C) Run questionnaire engine WITH relevance included
+        # --------------------------------------------------------
+        assistant_msg, extraction_field = run_questionnaire_turn(
+            user_message=user_message,
+            user_data=user_data,
+            language=current_language,
+            relevance_label=relevance_label,
         )
-        
-        # Prepend transition message if questionnaire was just completed
-        if transition_prefix:
-            ai_response = transition_prefix + ai_response
+
+        # --------------------------------------------------------
+        # D) Extract structured info ONLY if ON_TOPIC
+        # --------------------------------------------------------
+        if relevance_label == "ON_TOPIC" and extraction_field:
+            extracted = extract_all_information_from_message(
+                normalized_msg,     # English text for extraction model
+                extraction_field
+            )
+            if extracted:
+                user_data = update_collected_information(user_data, extracted)
+
+        # --------------------------------------------------------
+        # F) Check if questionnaire is now complete
+        # --------------------------------------------------------
+        missing_info = get_missing_information_list(user_data)
+        if not missing_info:
+            user_data["questionnaire"]["completed"] = True
+            user_data["questionnaire_completed"] = True
+
+            try:
+                insights = generate_questionnaire_insights(user_data)
+                if insights:
+                    user_data["questionnaire_insights"] = insights
+            except Exception as e:
+                print(f"[WARN] Questionnaire insights failed: {e}")
+
+        # --------------------------------------------------------
+        # G) Persist & return response
+        # --------------------------------------------------------
+        chat_history.append({"role": "assistant", "content": assistant_msg})
+        user_data["last_interaction"] = datetime.now().isoformat()
+        save_chat_history(session_key, chat_history)
+        store_user_data(session_key, user_data)
+
+        return {"response": assistant_msg}
+
+    # ============================================================
+    #             If questionnaire completed 
+    # =========================================================
+    #                 THERAPEUTIC / RAG MODE
+    # =========================================================
+    print("[MODE] THERAPEUTIC (RAG)")
+
+    collected_context = create_collected_information_context(user_data)
+
+    ai_response = process_user_message(
+        user_message,
+        chat_history,
+        user_data,
+        detected_language=current_language,
+        max_summaries=3,
+        max_doctor_summaries=2,
+        additional_context=collected_context,
+    )
 
     chat_history.append({"role": "assistant", "content": ai_response})
+
+    user_data["last_interaction"] = current_time.isoformat()
     save_chat_history(session_key, chat_history)
+    store_user_data(session_key, user_data)
+
     return {"response": ai_response}
