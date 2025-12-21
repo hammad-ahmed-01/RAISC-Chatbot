@@ -29,6 +29,13 @@ from dotenv import load_dotenv
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Download NLTK data if not available
+try:
+    nltk.data.find('sentiment/vader_lexicon.zip')
+except LookupError:
+    print("Downloading NLTK vader_lexicon...")
+    nltk.download('vader_lexicon', quiet=True)
+
 analyzer = SentimentIntensityAnalyzer()
 llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY, temperature=1)
 
