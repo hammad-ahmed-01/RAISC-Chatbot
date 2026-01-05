@@ -5,7 +5,6 @@ from app.rag_config import (
     english_rag_chain,      # English RAG chain
     retriever               # Shared retriever (if needed for manual retrieval)
 )
-
 from langchain_core.messages import AIMessage
 
 def _to_text(result):

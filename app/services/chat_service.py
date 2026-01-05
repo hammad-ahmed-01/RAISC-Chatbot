@@ -1,7 +1,7 @@
 # app/services/chat_service.py
-import nltk
+# import nltk
 import re
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
+# from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-analyzer = SentimentIntensityAnalyzer()
+# analyzer = SentimentIntensityAnalyzer()
 llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY, temperature=1)
 
 # Inactivity threshold
@@ -838,9 +838,9 @@ def create_collected_information_context(user_data: dict) -> str:
     else:
         return ""
 
-# Sentiment analysis and summary functions (unchanged from original)
-def analyze_sentiment(message: str) -> dict:
-    return analyzer.polarity_scores(message)
+# # Sentiment analysis and summary functions (unchanged from original)
+# def analyze_sentiment(message: str) -> dict:
+#     return analyzer.polarity_scores(message)
 
 def analyze_emotions(chat_history, session_start_index):
     user_sentiments = [
@@ -1171,8 +1171,8 @@ async def process_chat(session_key: str, user_message: str):
     # ------------------------------------------------------------
     # 7) Analyze sentiment of current user message
     # ------------------------------------------------------------
-    sentiment = analyze_sentiment(user_message)
-    chat_history.append({"role": "user", "content": user_message, "sentiment": sentiment})
+    # sentiment = analyze_sentiment(user_message)
+    # chat_history.append({"role": "user", "content": user_message, "sentiment": sentiment})
 
     # ============================================================
     #                SMART QUESTIONNAIRE MODE (UPDATED)
