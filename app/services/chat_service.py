@@ -1,7 +1,5 @@
 # app/services/chat_service.py
-# import nltk
 import re
-# from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -10,16 +8,11 @@ from app.services.user_service import get_user_data, store_user_data, get_doctor
 from app.services.rag_service import process_user_message
 from app.services.language_service import (
     detect_language,
-    get_greeting_message, 
-    get_completion_message,
-    get_risk_intervention_message,
-    get_session_end_message,
-    get_error_message
 )
 from app.services.smart_questionnaire import (
     run_questionnaire_turn,
     QUESTION_FLOW,
-    FIELD_DESCRIPTIONS,   # <-- ADD THIS
+    FIELD_DESCRIPTIONS
 )
 from app.services.relevance import relevance_score
 import os
@@ -838,10 +831,6 @@ def create_collected_information_context(user_data: dict) -> str:
     else:
         return ""
 
-# # Sentiment analysis and summary functions (unchanged from original)
-# def analyze_sentiment(message: str) -> dict:
-#     return analyzer.polarity_scores(message)
-
 def analyze_emotions(chat_history, session_start_index):
     user_sentiments = [
         msg["sentiment"] for msg in chat_history[session_start_index:]
@@ -894,7 +883,6 @@ def generate_conversation_summary(chat_history, session_start_index, previous_su
         conversation_text = " ".join(user_messages).strip()
         assistant_context = " ".join(assistant_messages[-3:]).strip() if assistant_messages else ""
         prev_sum_str = previous_summary if previous_summary else "None"
-
 
         prompt_text = """
         You are a licensed clinical psychologist writing post-session notes. 
@@ -1116,15 +1104,6 @@ async def process_chat(session_key: str, user_message: str):
         chat_history.append({"role": "assistant", "content": goodbye_msg})
         save_chat_history(session_key, chat_history)
         store_user_data(session_key, user_data)
-
-        print("[BACKEND] Conversation ended by user request.")
-        # Safely write user_data to a readable file
-        debug_path = os.path.join(os.getcwd(), "debug_user_data.json")
-
-        with open(debug_path, "w", encoding="utf-8") as f:
-            json.dump(user_data, f, indent=4, ensure_ascii=False)
-
-        print(f"[DEBUG] user_data dumped to {debug_path}")
         return {"response": goodbye_msg}
 
     # ------------------------------------------------------------
@@ -1171,8 +1150,7 @@ async def process_chat(session_key: str, user_message: str):
     # ------------------------------------------------------------
     # 7) Analyze sentiment of current user message
     # ------------------------------------------------------------
-    # sentiment = analyze_sentiment(user_message)
-    # chat_history.append({"role": "user", "content": user_message, "sentiment": sentiment})
+    chat_history.append({"role": "user", "content": user_message})
 
     # ============================================================
     #                SMART QUESTIONNAIRE MODE (UPDATED)
