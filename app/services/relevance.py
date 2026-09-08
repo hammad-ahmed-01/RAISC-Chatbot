@@ -11,7 +11,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # ---------------------------------------------------------
 # 1. Your LLM (for fallback classification)
 # ---------------------------------------------------------
-# OPENAI_API_KEY="REMOVED_OPENAI_API_KEY"
 llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY, temperature=1)
 
 # ---------------------------------------------------------
